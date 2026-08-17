@@ -1,0 +1,7 @@
+packages:
+  - plugins/*
+  - packages/*
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

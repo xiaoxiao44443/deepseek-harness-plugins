@@ -1,0 +1,134 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import {
+  deleteArchivedSession,
+  isValidSessionId,
+  listArchivedSessions,
+  readArchivedIds,
+} from '../lib/logic.js';
+
+const ORIGINAL_HOME = process.env.DSH_HOME;
+
+function makeRoot() {
+  const root = join(tmpdir(), 'dsh-archive-test-' + Math.random().toString(36).slice(2));
+  return root;
+}
+
+async function scaffold(root) {
+  // 两个项目目录，各含一个会话；其中一个是归档的
+  const projA = join(root, 'sessions', 'proj-a');
+  const projB = join(root, 'sessions', 'proj-b');
+  const archivedId = 'session-11111111-2222-3333-4444-555555555555';
+  const liveId = 'session-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  await mkdir(join(projA, archivedId), { recursive: true });
+  await mkdir(join(projB, liveId), { recursive: true });
+  await writeFile(join(projA, archivedId, 'session.jsonl.zstd'), 'x');
+  await writeFile(join(projB, liveId, 'session.jsonl.zstd'), 'x');
+  await mkdir(join(root, 'storages'), { recursive: true });
+  await writeFile(
+    join(root, 'storages', 'workspace.json'),
+    JSON.stringify({
+      unit: { name: 'workspace', version: 2 },
+      global: { initialized: true, workspaceIds: [], archivedSessionIds: [archivedId] },
+      tables: {
+        workspaces: {
+          'workspace-a': {
+            path: '/tmp/项目甲',
+            title: '项目甲',
+            sessionIds: [archivedId],
+          },
+        },
+      },
+    }),
+  );
+  await writeFile(
+    join(root, 'storages', 'session_projcache.json'),
+    JSON.stringify({
+      unit: { name: 'session_projcache', version: 3 },
+      global: null,
+      tables: {
+        sessions: {
+          [archivedId]: {
+            identity: { createdAt: 1_700_000_000_000, cwd: '/tmp/项目甲' },
+            rows: {
+              title: { val: '格式化 MySQL 视图查询' },
+              sessionListMetadata: { val: { lastPromptAt: 1_710_000_000_000 } },
+            },
+          },
+        },
+      },
+    }),
+  );
+  return { archivedId, liveId };
+}
+
+test('isValidSessionId 只接受 session-<uuid>', () => {
+  assert.ok(isValidSessionId('session-11111111-2222-3333-4444-555555555555'));
+  assert.ok(!isValidSessionId('session-../../etc/passwd'));
+  assert.ok(!isValidSessionId('session-123'));
+  assert.ok(!isValidSessionId(''));
+});
+
+test('readArchivedIds 读取归档集合；损坏文件返回空', async (t) => {
+  const root = makeRoot();
+  process.env.DSH_HOME = root;
+  t.after(() => {
+    if (ORIGINAL_HOME === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = ORIGINAL_HOME;
+    return rm(root, { recursive: true, force: true });
+  });
+  await scaffold(root);
+  const ids = await readArchivedIds();
+  assert.deepEqual(ids, ['session-11111111-2222-3333-4444-555555555555']);
+  await writeFile(join(root, 'storages', 'workspace.json'), 'not json{{{');
+  assert.deepEqual(await readArchivedIds(), []);
+});
+
+test('listArchivedSessions 只返回归档且存在于磁盘的会话', async (t) => {
+  const root = makeRoot();
+  process.env.DSH_HOME = root;
+  t.after(() => {
+    if (ORIGINAL_HOME === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = ORIGINAL_HOME;
+    return rm(root, { recursive: true, force: true });
+  });
+  const { archivedId } = await scaffold(root);
+  const list = await listArchivedSessions();
+  assert.deepEqual(list.map((s) => s.id), [archivedId]);
+  assert.deepEqual(list[0], {
+    id: archivedId,
+    title: '格式化 MySQL 视图查询',
+    projectTitle: '项目甲',
+    projectPath: '/tmp/项目甲',
+    updatedAt: 1_710_000_000_000,
+  });
+});
+
+test('deleteArchivedSession：归档会话可删、活跃会话拒绝、非法 id 抛错', async (t) => {
+  const root = makeRoot();
+  process.env.DSH_HOME = root;
+  t.after(() => {
+    if (ORIGINAL_HOME === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = ORIGINAL_HOME;
+    return rm(root, { recursive: true, force: true });
+  });
+  const { archivedId, liveId } = await scaffold(root);
+
+  // 未归档的会话：返回 0，目录保留
+  assert.equal(await deleteArchivedSession(liveId), 0);
+
+  // 归档会话：删除成功
+  assert.equal(await deleteArchivedSession(archivedId), 1);
+  assert.deepEqual(await listArchivedSessions(), []);
+  // 删除后保留归档标记作为隐藏墓碑，避免当前 Host 暴露幽灵会话。
+  assert.deepEqual(await readArchivedIds(), [archivedId]);
+
+  // 再删一次：已不存在，返回 0
+  assert.equal(await deleteArchivedSession(archivedId), 0);
+
+  // 非法 id：抛错
+  await assert.rejects(() => deleteArchivedSession('../../x'), /invalid session id/);
+});

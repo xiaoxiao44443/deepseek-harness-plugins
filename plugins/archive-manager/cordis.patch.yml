@@ -1,0 +1,6 @@
+# dsh-archive-manager bundle patch — one insert mounting the plugin.
+# Host 半区提供 HTTP 接口；Client 半区（dsh.client 声明）由
+# dsh-client-modules 扫描本行组合条目后加载到浏览器。
+- insert:
+    - id: archive-manager
+      name: 'dsh-archive-manager'
