@@ -23,7 +23,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
-    "test": "node --test"
+    "test": "tsc -p tsconfig.json && node --test"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
