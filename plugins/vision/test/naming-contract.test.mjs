@@ -26,5 +26,6 @@ test('vision separates runtime names from globally registered tool names', async
   assert.match(client, /namespace: 'dsh-vision'/);
   assert.match(client, /key: 'dfy_vision_analyze'/);
   assert.match(client, />DFY VISION ANALYZE</);
+  assert.match(client, /ctx\.effect\(installStyles, 'dsh-vision: client styles'\)/);
   assert.match(client, /\.dsh-vision-card/);
 });

@@ -41,6 +41,7 @@ interface SlotEntryOptions {
 }
 
 interface ClientCtx {
+  effect(setup: () => (() => void), label: string): unknown;
   slots: {
     inject(name: string, register: () => unknown): unknown;
     register(options: SlotEntryOptions, component: unknown): unknown;
@@ -156,6 +157,18 @@ const STYLES = `
 @media (max-width: 680px) { .dsh-vision-badge { display: none; } }
 @media (prefers-reduced-motion: reduce) { .dsh-vision-tool-card[data-state='running'] .dsh-vision-tool-row::after { display: none; animation: none; } }
 `;
+
+const STYLE_ID = '@dfy-plugins/dsh-vision';
+
+function installStyles(): () => void {
+  const existing = document.querySelector<HTMLStyleElement>(`style[data-plugin=${JSON.stringify(STYLE_ID)}]`);
+  if (existing !== null) return () => {};
+  const tag = document.createElement('style');
+  tag.dataset.plugin = STYLE_ID;
+  tag.textContent = STYLES;
+  document.head.appendChild(tag);
+  return () => tag.remove();
+}
 
 function firstLine(value: string): string {
   const newline = value.indexOf('\n');
@@ -390,7 +403,6 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
 
   return (
     <li className="dsh-vision-card" data-open={open || undefined}>
-      <style>{STYLES}</style>
       <button type="button" className="dsh-vision-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="dsh-vision-head-copy">
           <span className="dsh-vision-title">视觉分析</span>
@@ -477,6 +489,7 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
 }
 
 export function apply(ctx: ClientCtx): void {
+  ctx.effect(installStyles, 'dsh-vision: client styles');
   const scope = ctx.settingsScope.bind<VisionSettings>({ namespace: 'dsh-vision' });
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview',
