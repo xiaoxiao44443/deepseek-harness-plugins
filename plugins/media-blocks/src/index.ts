@@ -64,6 +64,8 @@ declare module '@deepseek-ai/dsh-llm' {
 export interface MediaReferenceAdapterContext {
   block: MediaBlock;
   options: GenerateOptions;
+  /** Whether the parent model already receives the official image block. */
+  supportsImages: boolean;
 }
 
 export type MediaReferenceAdapter = (
@@ -74,6 +76,13 @@ export interface MediaReferenceAdapterOptions {
   /** Re-establish transient runtime dependencies before accepting a prompt. */
   prepare?: () => boolean | Promise<boolean>;
 }
+
+type MediaReferenceAdapterEntry = {
+  adapter: MediaReferenceAdapter;
+  prepare?: () => boolean | Promise<boolean>;
+};
+
+type MediaReferenceAdapterSource = MediaReferenceAdapter | readonly MediaReferenceAdapterEntry[];
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -225,19 +234,28 @@ export function transformMediaContent(
   content: readonly ContentBlock[],
   supportsImages: boolean,
   options: GenerateOptions,
-  adapters: ReadonlyMap<string, MediaReferenceAdapter>,
+  adapters: ReadonlyMap<string, MediaReferenceAdapterSource>,
 ): { content: ContentBlock[]; changed: boolean } {
   let changed = false;
   const transformed: ContentBlock[] = [];
   for (const block of content) {
     if (block.type === MEDIA_BLOCK_TYPE) {
       changed = true;
+      const source = adapters.get(String(block.resource.kind));
+      const candidates = source === undefined
+        ? []
+        : typeof source === 'function'
+          ? [source]
+          : source.map((entry) => entry.adapter);
+      const adapted = candidates
+        .map((adapter) => adapter({ block, options, supportsImages }))
+        .find((candidate) => candidate !== undefined);
       if (block.resource.kind === 'image' && supportsImages) {
         transformed.push({ type: 'image', attachment: block.resource.attachment });
+        if (adapted !== undefined) transformed.push(...adapted);
         continue;
       }
-      const adapter = adapters.get(String(block.resource.kind));
-      transformed.push(...(adapter?.({ block, options }) ?? [textFallback(block)]));
+      transformed.push(...(adapted ?? [textFallback(block)]));
       continue;
     }
     if (block.type === 'tool-result' && hasMediaBlock(block.content)) {
@@ -274,30 +292,40 @@ export default class MediaBlocks extends Service {
     // Keep identity-sensitive registry state in this constructor closure so a
     // dependent plugin and this Host's routes always mutate/read the same Map.
     const instanceId = randomUUID();
-    const adapters = new Map<string, MediaReferenceAdapter>();
-    const adapterPreparers = new Map<string, () => boolean | Promise<boolean>>();
+    const adapters = new Map<string, MediaReferenceAdapterEntry[]>();
     let lastPrompt: MediaPromptDiagnostic | undefined;
     this.registerReferenceAdapter = (kind, adapter, options = {}) => {
       if (kind.length === 0) throw new Error('media block adapter kind cannot be empty');
-      if (adapters.has(kind)) throw new Error(`media block adapter already registered for ${kind}`);
-      adapters.set(kind, adapter);
-      if (options.prepare !== undefined) adapterPreparers.set(kind, options.prepare);
+      const entry: MediaReferenceAdapterEntry = {
+        adapter,
+        ...(options.prepare === undefined ? {} : { prepare: options.prepare }),
+      };
+      const entries = adapters.get(kind) ?? [];
+      entries.push(entry);
+      adapters.set(kind, entries);
       return () => {
-        if (adapters.get(kind) !== adapter) return;
-        adapters.delete(kind);
-        adapterPreparers.delete(kind);
+        const current = adapters.get(kind);
+        if (current === undefined) return;
+        const index = current.indexOf(entry);
+        if (index === -1) return;
+        current.splice(index, 1);
+        if (current.length === 0) adapters.delete(kind);
       };
     };
     this.hasReferenceAdapter = (kind) => adapters.has(kind);
     this.prepareReferenceAdapter = async (kind) => {
       if (!adapters.has(kind)) return false;
-      const prepare = adapterPreparers.get(kind);
-      if (prepare === undefined) return true;
-      try {
-        return await prepare();
-      } catch {
-        return false;
+      const entries = adapters.get(kind);
+      if (entries === undefined) return false;
+      for (const entry of entries) {
+        if (entry.prepare === undefined) return true;
+        try {
+          if (await entry.prepare()) return true;
+        } catch {
+          // Another adapter for the same resource kind may still be available.
+        }
       }
+      return false;
     };
     this.status = () => ({
       instanceId,

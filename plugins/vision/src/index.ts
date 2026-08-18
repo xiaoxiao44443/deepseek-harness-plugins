@@ -462,7 +462,8 @@ export function apply(ctx: Context, entryConfig: Config): void {
     mediaBinding = binding;
     disposeReferenceAdapter?.();
     mediaBlocks = target;
-    disposeReferenceAdapter = target.registerReferenceAdapter('image', ({ block, options }) => {
+    disposeReferenceAdapter = target.registerReferenceAdapter('image', ({ block, options, supportsImages }) => {
+      if (supportsImages) return undefined;
       if (options.purpose !== undefined) return undefined;
       if (!options.tools?.some((tool) => tool.name === TOOL_NAME)) return undefined;
       if (block.resource.kind !== 'image') return undefined;

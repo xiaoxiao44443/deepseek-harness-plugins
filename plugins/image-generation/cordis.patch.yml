@@ -1,0 +1,4 @@
+# @dfy-plugins/dsh-image-generation bundle patch — dedicated image Skill, Tool and settings card.
+- insert:
+    - id: image-generation
+      name: '@dfy-plugins/dsh-image-generation'

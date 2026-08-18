@@ -20,6 +20,10 @@ test('wallpaper keeps its published and runtime naming contract', async () => {
   assert.match(host, /path: '\/api\/dsh-wallpaper\/state'/);
   assert.match(client, /const API_BASE = '\/api\/dsh-wallpaper'/);
   assert.match(client, /const ACTIVE_ATTRIBUTE = 'data-dsh-wallpaper-active'/);
+  assert.match(client, /const STYLE_ID = '@dfy-plugins\/dsh-wallpaper'/);
+  assert.match(client, /ctx\.effect\(installStyles, 'dsh-wallpaper: client styles'\)/);
+  assert.match(client, /existing\.replaceWith\(tag\)/);
+  assert.doesNotMatch(client, /<style>\{STYLES\}<\/style>/);
   assert.match(client, /data-dsh-wallpaper-panel-root/);
   assert.match(client, /id: 'wallpaper'/);
 });

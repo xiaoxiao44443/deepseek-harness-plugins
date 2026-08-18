@@ -40,6 +40,7 @@ export const name = 'wallpaper';
 export const inject = ['slots'];
 
 const OWNER = 'dsh-wallpaper';
+const STYLE_ID = '@dfy-plugins/dsh-wallpaper';
 const ACTIVE_ATTRIBUTE = 'data-dsh-wallpaper-active';
 const API_BASE = '/api/dsh-wallpaper';
 const SETTINGS_DEBOUNCE_MS = 180;
@@ -250,6 +251,16 @@ body[data-ds-dark-theme] .dsh-wallpaper-floating {
 }
 `;
 
+function installStyles(): () => void {
+  const existing = document.querySelector<HTMLStyleElement>(`style[data-plugin=${JSON.stringify(STYLE_ID)}]`);
+  const tag = document.createElement('style');
+  tag.dataset.plugin = STYLE_ID;
+  tag.textContent = STYLES;
+  if (existing === null) document.head.appendChild(tag);
+  else existing.replaceWith(tag);
+  return () => tag.remove();
+}
+
 interface WallpaperSnapshot {
   settings: WallpaperSettings;
   hasImage: boolean;
@@ -303,7 +314,6 @@ class WallpaperController {
   private persistTimer: number | null = null;
   private persistTail: Promise<void> = Promise.resolve();
   private listeners = new Set<() => void>();
-  private styleElement: HTMLStyleElement | null = null;
   private mediaLayer: HTMLDivElement | null = null;
   private maskLayer: HTMLDivElement | null = null;
   private panelHost: HTMLDivElement | null = null;
@@ -331,13 +341,6 @@ class WallpaperController {
 
     document.querySelectorAll(`[data-dsh-wallpaper-owner='${OWNER}']`).forEach((node) => node.remove());
     document.body.removeAttribute(ACTIVE_ATTRIBUTE);
-
-    const style = document.createElement('style');
-    style.dataset.dshWallpaperOwner = OWNER;
-    style.dataset.pluginCss = `${OWNER}/styles`;
-    style.textContent = STYLES;
-    document.head.appendChild(style);
-    this.styleElement = style;
 
     const media = document.createElement('div');
     media.dataset.dshWallpaperOwner = OWNER;
@@ -375,11 +378,9 @@ class WallpaperController {
     this.imageUrl = null;
     this.panelOpen = false;
     this.panelRoot?.unmount();
-    this.styleElement?.remove();
     this.mediaLayer?.remove();
     this.maskLayer?.remove();
     this.panelHost?.remove();
-    this.styleElement = null;
     this.mediaLayer = null;
     this.maskLayer = null;
     this.panelHost = null;
@@ -1142,6 +1143,7 @@ function WallpaperSettingsLauncher({
 }
 
 export function apply(ctx: ClientCtx): void {
+  ctx.effect(installStyles, 'dsh-wallpaper: client styles');
   const controller = pageController();
   ctx.effect(() => {
     controller.mount();

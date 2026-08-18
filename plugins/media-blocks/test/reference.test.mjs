@@ -61,6 +61,19 @@ test('text requests use the registered reference adapter without changing durabl
   assert.equal(mediaBlock.type, 'xiao443-media');
 });
 
+test('multiple adapters can share one media kind and the first applicable result wins', () => {
+  const adapters = new Map([['image', [
+    { adapter: () => undefined },
+    { adapter: ({ supportsImages }) => [{ type: 'text', text: supportsImages ? '<image_ref />' : '<edit_ref />' }] },
+  ]]])
+  const textProjected = transformMediaContent([mediaBlock], false, options, adapters)
+  assert.deepEqual(textProjected.content, [{ type: 'text', text: '<edit_ref />' }])
+
+  const imageProjected = transformMediaContent([mediaBlock], true, options, adapters)
+  assert.equal(imageProjected.content[0].type, 'image')
+  assert.deepEqual(imageProjected.content[1], { type: 'text', text: '<image_ref />' })
+})
+
 test('reference adapters registered from an injected child fiber reach the Host instance', async () => {
   const ctx = new Context();
   const host = new MediaBlocks(ctx);
@@ -89,3 +102,23 @@ test('reference adapters registered from an injected child fiber reach the Host 
   assert.equal(await host.prepareReferenceAdapter('image'), false);
   dependent.dispose();
 });
+
+test('same-kind adapter preparers remain independently disposable', async () => {
+  const ctx = new Context()
+  const host = new MediaBlocks(ctx)
+  let disposeFirst = () => {}
+  let disposeSecond = () => {}
+  const dependent = ctx.inject(['mediaBlocks'], (child) => {
+    disposeFirst = child.mediaBlocks.registerReferenceAdapter('image', () => undefined, { prepare: () => false })
+    disposeSecond = child.mediaBlocks.registerReferenceAdapter('image', () => [], { prepare: () => true })
+  })
+  await dependent
+  assert.equal(host.hasReferenceAdapter('image'), true)
+  assert.equal(await host.prepareReferenceAdapter('image'), true)
+  disposeFirst()
+  assert.equal(host.hasReferenceAdapter('image'), true)
+  assert.equal(await host.prepareReferenceAdapter('image'), true)
+  disposeSecond()
+  assert.equal(host.hasReferenceAdapter('image'), false)
+  dependent.dispose()
+})
