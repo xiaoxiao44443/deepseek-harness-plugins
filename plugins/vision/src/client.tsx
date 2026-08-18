@@ -14,6 +14,7 @@ interface VisionSettings {
   enabled?: boolean;
   provider?: string;
   model?: string;
+  reasoningEffort?: string;
   maxTokens?: number;
 }
 
@@ -54,6 +55,10 @@ interface ClientCtx {
 interface ModelView {
   id: string;
   name: string;
+  reasoning?: {
+    efforts: { id: string; name: string; description?: string }[];
+    defaultEffort?: string;
+  };
 }
 
 interface ProviderView {
@@ -77,6 +82,7 @@ interface Draft {
   enabled: boolean;
   provider: string;
   model: string;
+  reasoningEffort: string;
   maxTokens: number;
 }
 
@@ -162,11 +168,11 @@ const STYLE_ID = '@dfy-plugins/dsh-vision';
 
 function installStyles(): () => void {
   const existing = document.querySelector<HTMLStyleElement>(`style[data-plugin=${JSON.stringify(STYLE_ID)}]`);
-  if (existing !== null) return () => {};
   const tag = document.createElement('style');
   tag.dataset.plugin = STYLE_ID;
   tag.textContent = STYLES;
-  document.head.appendChild(tag);
+  if (existing === null) document.head.appendChild(tag);
+  else existing.replaceWith(tag);
   return () => tag.remove();
 }
 
@@ -247,6 +253,7 @@ function draftOf(value: VisionSettings | undefined): Draft {
     enabled: (value?.enabled ?? false) && provider.length > 0 && model.length > 0,
     provider,
     model,
+    reasoningEffort: value?.reasoningEffort ?? '',
     maxTokens: value?.maxTokens ?? 1024,
   };
 }
@@ -254,7 +261,7 @@ function draftOf(value: VisionSettings | undefined): Draft {
 function activationLabel(activation: Activation | null): string {
   if (activation === null) return '检查中';
   switch (activation.status) {
-    case 'active': return `已启用 · ${activation.model}`;
+    case 'active': return '已启用';
     case 'checking': return '正在检查路由';
     case 'disabled': return '已关闭';
     case 'unconfigured': return '尚未配置';
@@ -372,12 +379,23 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
   const modelOptions = selectedProvider?.models
     ?? providerOptions.find((provider) => provider.id === draft.provider)?.models
     ?? [];
+  const selectedModel = modelOptions.find((model) => model.id === draft.model);
+  const modelReasoning = selectedModel?.reasoning;
+  const reasoningOptions: VisionSelectOption[] = [
+    { value: '', label: '跟随模型默认' },
+    ...(modelReasoning?.efforts.map((effort) => ({ value: effort.id, label: effort.name })) ?? []),
+  ];
+  if (draft.reasoningEffort.length > 0 && !reasoningOptions.some((option) => option.value === draft.reasoningEffort)) {
+    reasoningOptions.push({ value: draft.reasoningEffort, label: `${draft.reasoningEffort}（当前配置）` });
+  }
   const validTokens = Number.isSafeInteger(draft.maxTokens) && draft.maxTokens >= 64 && draft.maxTokens <= 8192;
+  const validReasoning = draft.reasoningEffort.length === 0
+    || modelReasoning?.efforts.some((effort) => effort.id === draft.reasoningEffort) === true;
   const completeRoute = !draft.enabled || (draft.provider.length > 0 && draft.model.length > 0);
   const writable = snapshot.status === 'ready' && snapshot.writable;
 
   const save = (): void => {
-    if (!writable || !dirty || saving || !validTokens || !completeRoute) return;
+    if (!writable || !dirty || saving || !validTokens || !validReasoning || !completeRoute) return;
     setSaving(true);
     setSaveError(null);
     void (async () => {
@@ -387,6 +405,8 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
         else await scope.set('provider', draft.provider);
         if (draft.model.length === 0) await scope.unset('model');
         else await scope.set('model', draft.model);
+        if (draft.reasoningEffort.length === 0) await scope.unset('reasoningEffort');
+        else await scope.set('reasoningEffort', draft.reasoningEffort);
         await scope.set('maxTokens', draft.maxTokens);
         setDirty(false);
         await loadRoutes();
@@ -434,7 +454,7 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
               disabled={!writable || providerOptions.length === 0}
               onChange={(value) => {
                 const provider = providers.find((item) => item.id === value);
-                setDraft((current) => ({ ...current, provider: value, model: provider?.models[0]?.id ?? '' }));
+                setDraft((current) => ({ ...current, provider: value, model: provider?.models[0]?.id ?? '', reasoningEffort: '' }));
                 setDirty(true);
                 setSaveError(null);
               }}
@@ -450,10 +470,29 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
               placeholder="选择视觉模型"
               options={modelOptions.map((model) => ({ value: model.id, label: `${model.name} · ${model.id}` }))}
               disabled={!writable || draft.provider.length === 0 || modelOptions.length === 0}
-              onChange={(value) => edit('model', value)}
+              onChange={(value) => {
+                setDraft((current) => ({ ...current, model: value, reasoningEffort: '' }));
+                setDirty(true);
+                setSaveError(null);
+              }}
             />
             <p className="dsh-vision-hint">只列出明确支持图片输入的模型。</p>
           </div>
+
+          {modelReasoning !== undefined || draft.reasoningEffort.length > 0 ? (
+            <div className="dsh-vision-field">
+              <div className="dsh-vision-field-head"><label className="dsh-vision-label">思考等级</label></div>
+              <VisionSelect
+                ariaLabel="思考等级"
+                value={draft.reasoningEffort}
+                placeholder="跟随模型默认"
+                options={reasoningOptions}
+                disabled={!writable || draft.model.length === 0 || modelReasoning === undefined}
+                onChange={(value) => edit('reasoningEffort', value)}
+              />
+              <p className="dsh-vision-hint">等级和默认值读取自所选模型；跟随默认时不覆盖模型配置。</p>
+            </div>
+          ) : null}
 
           <div className="dsh-vision-field">
             <div className="dsh-vision-field-head"><label className="dsh-vision-label" htmlFor="dsh-vision-max-tokens">最大输出 Token</label></div>
@@ -473,6 +512,7 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
           </div>
 
           {!validTokens ? <p className="dsh-vision-note" data-error>最大输出 Token 必须是 64–8192 的整数。</p> : null}
+          {!validReasoning ? <p className="dsh-vision-note" data-error>当前视觉模型不支持已保存的思考等级，请改为跟随模型默认。</p> : null}
           {!completeRoute ? <p className="dsh-vision-note" data-error>启用时必须同时选择提供方和视觉模型。</p> : null}
           {saveError === null ? null : <p className="dsh-vision-note" data-error>保存失败：{saveError}</p>}
           {snapshot.status === 'unavailable' ? <p className="dsh-vision-note" data-error>当前部署未开放此插件的设置命名空间。</p> : null}
@@ -480,7 +520,7 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
           <div className="dsh-vision-actions">
             <button type="button" className="dsh-vision-button" onClick={() => void loadRoutes()}>刷新模型</button>
             <button type="button" className="dsh-vision-button" disabled={!dirty || saving} onClick={() => { setDraft(draftOf(snapshot.value)); setDirty(false); setSaveError(null); }}>放弃更改</button>
-            <button type="button" className="dsh-vision-button" data-primary disabled={!writable || !dirty || saving || !validTokens || !completeRoute} onClick={save}>{saving ? '保存中…' : '保存'}</button>
+            <button type="button" className="dsh-vision-button" data-primary disabled={!writable || !dirty || saving || !validTokens || !validReasoning || !completeRoute} onClick={save}>{saving ? '保存中…' : '保存'}</button>
           </div>
         </div>
       ) : null}

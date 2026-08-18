@@ -13,7 +13,7 @@ test('archive manager keeps its published and runtime naming contract', async ()
   ]);
 
   assert.equal(JSON.parse(pkg).name, '@dfy-plugins/dsh-archive-manager');
-  assert.match(patch, /id: archive-manager\n\s+name: '@dfy-plugins\/dsh-archive-manager'/);
+  assert.match(patch, /id: archive-manager\r?\n\s+name: '@dfy-plugins\/dsh-archive-manager'/);
   assert.match(host, /export const name = 'archive-manager'/);
   assert.match(host, /path: '\/api\/dsh-archive-manager\/list'/);
   assert.match(client, /fetch\('\/api\/dsh-archive-manager\/list'\)/);

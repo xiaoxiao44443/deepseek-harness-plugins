@@ -357,8 +357,8 @@ export default class MediaBlocks extends Service {
                   ok: false,
                   error: {
                     code: 'attachment-error',
-                    message: '当前模型不支持图片输入，请先配置并启用视觉分析插件。',
-                    details: { reason: 'VISION_ROUTE_UNAVAILABLE' },
+                    message: `Model "${payload.selection.model}" does not support image input.`,
+                    details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
                   },
                 },
               });

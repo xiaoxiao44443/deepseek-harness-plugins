@@ -1,8 +1,8 @@
 /** @dfy-plugins/dsh-vision Host half: isolated visual inference, tool, Skill, settings, and route discovery. */
 import type { Context } from '@deepseek-ai/cordis';
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment';
-import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
-import type { LlmModelInfo } from '@deepseek-ai/dsh-llm';
+import { BlockAssembler, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-fs';
 import { settingsNamespace } from '@deepseek-ai/dsh-settings';
 import type {} from '@deepseek-ai/dsh-skill';
@@ -31,6 +31,7 @@ export interface Config {
   enabled?: boolean;
   provider?: string;
   model?: string;
+  reasoningEffort?: string;
   maxTokens?: number;
 }
 
@@ -38,6 +39,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(false),
   provider: z.string().default(''),
   model: z.string().default(''),
+  reasoningEffort: z.string().default(''),
   maxTokens: z.number().step(1).min(64).max(8192).default(1024),
 });
 
@@ -51,6 +53,7 @@ interface ResolvedConfig {
   enabled: boolean;
   provider: string;
   model: string;
+  reasoningEffort: string;
   maxTokens: number;
 }
 
@@ -62,6 +65,10 @@ type Activation =
 interface VisionModelView {
   id: string;
   name: string;
+  reasoning?: {
+    efforts: { id: string; name: string; description?: string }[];
+    defaultEffort?: string;
+  };
 }
 
 interface VisionProviderView {
@@ -118,6 +125,7 @@ function resolvedConfig(config: Config): ResolvedConfig {
     enabled: config.enabled ?? false,
     provider: config.provider?.trim() ?? '',
     model: config.model?.trim() ?? '',
+    reasoningEffort: config.reasoningEffort?.trim() ?? '',
     maxTokens: Number.isSafeInteger(maxTokens) && maxTokens >= 64 && maxTokens <= 8192
       ? maxTokens
       : DEFAULT_MAX_TOKENS,
@@ -219,6 +227,7 @@ async function analyzeImage(
   for await (const chunk of ctx.llm.stream({
     provider: config.provider,
     model: config.model,
+    ...(config.reasoningEffort.length === 0 ? {} : { reasoningEffort: ReasoningEffortId(config.reasoningEffort) }),
     messages: [message],
     system: VISION_SYSTEM_PROMPT,
     maxTokens: config.maxTokens,
@@ -329,20 +338,17 @@ async function listVisionProviders(ctx: Context, current: ResolvedConfig): Promi
     }
     const models: VisionModelView[] = [];
     for (const model of catalog) {
-      let modalities = model.inputModalities;
-      if (modalities === undefined) {
-        try {
-          modalities = (await ctx.llm.resolveModelInfo(provider.id, model.id)).inputModalities;
-        } catch {
-          continue;
-        }
+      try {
+        const exact = await ctx.llm.resolveModelInfo(provider.id, model.id);
+        if (exact.inputModalities?.includes('image')) models.push(visionModelView(exact));
+      } catch {
+        if (model.inputModalities?.includes('image')) models.push({ id: model.id, name: model.name });
       }
-      if (modalities?.includes('image')) models.push({ id: model.id, name: model.name });
     }
     if (provider.id === current.provider && current.model.length > 0 && !models.some((model) => model.id === current.model)) {
       try {
         const exact = await ctx.llm.resolveModelInfo(provider.id, current.model);
-        if (exact.inputModalities?.includes('image')) models.push({ id: exact.id, name: exact.name });
+        if (exact.inputModalities?.includes('image')) models.push(visionModelView(exact));
       } catch {
         // A stale configured route is represented by activation, not as a selectable model.
       }
@@ -350,6 +356,23 @@ async function listVisionProviders(ctx: Context, current: ResolvedConfig): Promi
     if (models.length > 0) providers.push({ id: provider.id, name: provider.name, models });
   }
   return providers;
+}
+
+function visionModelView(model: LlmResolvedModelInfo): VisionModelView {
+  return {
+    id: model.id,
+    name: model.name,
+    ...(model.reasoning === undefined ? {} : {
+      reasoning: {
+        efforts: model.reasoning.efforts.map((effort) => ({
+          id: effort.id,
+          name: effort.name,
+          ...(effort.description === undefined ? {} : { description: effort.description }),
+        })),
+        ...(model.reasoning.defaultEffort === undefined ? {} : { defaultEffort: model.reasoning.defaultEffort }),
+      },
+    }),
+  };
 }
 
 export function apply(ctx: Context, entryConfig: Config): void {
@@ -407,6 +430,12 @@ export function apply(ctx: Context, entryConfig: Config): void {
       if (modelInfo.inputModalities === undefined || !modelInfo.inputModalities.includes('image')) {
         clearRuntimeFeatures();
         activation = { status: 'error', message: `${config.provider}/${config.model} 未声明 image 输入能力` };
+        return;
+      }
+      if (config.reasoningEffort.length > 0
+        && !modelInfo.reasoning?.efforts.some((effort) => effort.id === config.reasoningEffort)) {
+        clearRuntimeFeatures();
+        activation = { status: 'error', message: `${config.provider}/${config.model} 不支持推理等级 ${config.reasoningEffort}` };
         return;
       }
       try {

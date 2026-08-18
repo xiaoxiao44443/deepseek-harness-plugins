@@ -13,7 +13,7 @@ test('wallpaper keeps its published and runtime naming contract', async () => {
   ]);
 
   assert.equal(JSON.parse(pkg).name, '@dfy-plugins/dsh-wallpaper');
-  assert.match(patch, /id: wallpaper\n\s+name: '@dfy-plugins\/dsh-wallpaper'/);
+  assert.match(patch, /id: wallpaper\r?\n\s+name: '@dfy-plugins\/dsh-wallpaper'/);
   assert.match(host, /export const name = 'wallpaper'/);
   assert.match(host, /dshHomePath\('storages', 'dfy-plugins', 'wallpaper'\)/);
   assert.match(host, /dshHomePath\('storages', 'xiao443', 'dsh-wallpaper'\)/);
