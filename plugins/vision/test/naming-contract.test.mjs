@@ -32,5 +32,6 @@ test('vision separates runtime names from globally registered tool names', async
   assert.match(client, />DFY VISION ANALYZE</);
   assert.match(client, /ctx\.effect\(installStyles, 'dsh-vision: client styles'\)/);
   assert.match(client, /existing\.replaceWith\(tag\)/);
+  assert.doesNotMatch(client, /<style>\{STYLES\}<\/style>/);
   assert.match(client, /\.dsh-vision-card/);
 });

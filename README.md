@@ -10,7 +10,10 @@
 - [`@dfy-plugins/dsh-vision`](plugins/vision)：通过独立视觉路由为文本模型分析图片，主会话只接收文字结果。
 
 所有发布包使用 `@dfy-plugins` npm scope；运行时 ID、API、CSS 和持久化目录按各自的兼容性要求命名，
-不会随包名做全局替换。新增或修改插件前请先阅读 [`NAMING.md`](NAMING.md)。
+不会随包名做全局替换。新增或修改插件前请先阅读：
+
+- [`DEVELOPMENT.md`](DEVELOPMENT.md)：客户端 HMR、样式和资源生命周期规范。
+- [`NAMING.md`](NAMING.md)：发布包、运行时 ID、API、CSS 和数据目录命名规范。
 
 ## 开发
 

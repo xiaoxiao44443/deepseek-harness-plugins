@@ -20,6 +20,9 @@ test('media blocks keeps package, Cordis, API and content ids intentionally sepa
   assert.match(host, /details: \{ reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' \}/);
   assert.doesNotMatch(host, /VISION_ROUTE_UNAVAILABLE/);
   assert.match(client, /export const name = 'media-blocks'/);
+  assert.match(client, /ctx\.effect\(installStyles, 'dsh-media-blocks: client styles'\)/);
+  assert.match(client, /existing\.replaceWith\(tag\)/);
+  assert.doesNotMatch(client, /<style>\{STYLES\}<\/style>/);
   assert.match(client, /\.dsh-media-input/);
   assert.match(client, /locale: 'conversation'/);
 });

@@ -25,6 +25,7 @@ export const inject = ['slots', 'connection'];
 const BLOCK_TYPE = 'xiao443-media';
 const PROMPT_API = '/api/dsh-media-blocks/prompt';
 const RESOURCE_API = '/api/dsh-media-blocks/resource';
+const STYLE_ID = '@dfy-plugins/dsh-media-blocks';
 
 interface SlotEntryOptions {
   name: string;
@@ -88,6 +89,16 @@ const STYLES = `
 .dsh-media-user-action:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); color:var(--dsw-alias-label-secondary, inherit); }
 `;
 
+function installStyles(): () => void {
+  const existing = document.querySelector<HTMLStyleElement>(`style[data-plugin=${JSON.stringify(STYLE_ID)}]`);
+  const tag = document.createElement('style');
+  tag.dataset.plugin = STYLE_ID;
+  tag.textContent = STYLES;
+  if (existing === null) document.head.appendChild(tag);
+  else existing.replaceWith(tag);
+  return () => tag.remove();
+}
+
 function isMediaImageBlock(value: unknown): value is MediaImageBlock {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const block = value as Partial<MediaImageBlock>;
@@ -123,7 +134,6 @@ function MediaImageButton({ input }: InputProps): React.ReactElement {
   };
   return (
     <span className="dsh-media-input">
-      <style>{STYLES}</style>
       <input
         ref={fileRef}
         className="dsh-media-file"
@@ -211,7 +221,6 @@ function UserMediaNode({ node, loadImage, t }: ChatNodeProps): React.ReactElemen
   };
   return (
     <div className="dsh-media-user-row" data-time-hover-root>
-      <style>{STYLES}</style>
       <div className="dsh-media-user-stack">
         <ImageGallery images={images} load={loader} align="end" labels={labels} />
         {(text !== '' || rest.length > 0) && (
@@ -266,6 +275,7 @@ function installPromptBridge(api: IApiClient): () => void {
 }
 
 export function apply(ctx: ClientCtx): void {
+  ctx.effect(installStyles, 'dsh-media-blocks: client styles');
   ctx.effect(() => installPromptBridge(ctx.connection.api), 'dsh-media-blocks: image prompt bridge');
   ctx.effect(() => () => {
     for (const pending of resourceUrls.values()) void pending.then((url) => URL.revokeObjectURL(url));
