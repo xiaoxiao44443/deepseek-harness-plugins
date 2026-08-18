@@ -1,4 +1,4 @@
-/** 把壁纸 Client 半区打包成 DSH __ModuleLoader__ 模块。 */
+/** 把视觉插件 Client 半区打包成 DSH __ModuleLoader__ 模块。 */
 import { build } from 'esbuild';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 
@@ -14,7 +14,6 @@ await build({
   external: [
     'react',
     'react/jsx-runtime',
-    'react-dom/client',
     '@deepseek-ai/dsh-client-ui-primitives',
   ],
   outfile: TEMP,
@@ -22,7 +21,7 @@ await build({
 });
 
 const raw = await readFile(TEMP, 'utf8');
-const wrapped = `window.__ModuleLoader__.load({\n  id: "@dfy-plugins/dsh-wallpaper",\n  factory: (require) => {\n    var module = { exports: {} };\n    var exports = module.exports;\n${raw}\n    return module.exports;\n  }\n});\n`;
+const wrapped = `window.__ModuleLoader__.load({\n  id: "@dfy-plugins/dsh-vision",\n  factory: (require) => {\n    var module = { exports: {} };\n    var exports = module.exports;\n${raw}\n    return module.exports;\n  }\n});\n`;
 await writeFile(OUT, wrapped);
 await rm(TEMP);
 console.log(`wrote ${OUT} (${wrapped.length} bytes)`);

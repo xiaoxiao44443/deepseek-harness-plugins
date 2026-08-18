@@ -1,0 +1,4 @@
+# @dfy-plugins/dsh-media-blocks — shared multimedia reference blocks and renderers.
+- insert:
+    - id: media-blocks
+      name: '@dfy-plugins/dsh-media-blocks'

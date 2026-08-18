@@ -1,5 +1,5 @@
 {
-  "name": "dsh-archive-manager",
+  "name": "@dfy-plugins/dsh-archive-manager",
   "version": "0.1.0",
   "description": "归档对话管理：按项目查看、取消归档或永久删除已归档的对话。",
   "type": "module",
@@ -19,6 +19,9 @@
     "lib",
     "cordis.patch.yml"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",

@@ -1,5 +1,5 @@
 {
-  "name": "dsh-wallpaper",
+  "name": "@dfy-plugins/dsh-wallpaper",
   "version": "0.1.0",
   "description": "DeepSeek Harness 可配置图片壁纸：适应模式、位置、透明度、模糊与颜色遮罩。",
   "type": "module",
@@ -19,6 +19,9 @@
     "lib",
     "cordis.patch.yml"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",

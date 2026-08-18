@@ -23,7 +23,7 @@ await build({
 });
 
 const raw = await readFile(TEMP, 'utf8');
-const wrapped = `window.__ModuleLoader__.load({\n  id: "dsh-archive-manager",\n  factory: (require) => {\n    var module = { exports: {} };\n    var exports = module.exports;\n${raw}\n    return module.exports;\n  }\n});\n`;
+const wrapped = `window.__ModuleLoader__.load({\n  id: "@dfy-plugins/dsh-archive-manager",\n  factory: (require) => {\n    var module = { exports: {} };\n    var exports = module.exports;\n${raw}\n    return module.exports;\n  }\n});\n`;
 await writeFile(OUT, wrapped);
 await rm(TEMP);
 console.log(`wrote ${OUT} (${wrapped.length} bytes)`);

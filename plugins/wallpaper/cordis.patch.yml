@@ -1,4 +1,4 @@
-# dsh-wallpaper bundle patch — 同时挂载 Host 存储接口与 Client 背景界面。
+# @dfy-plugins/dsh-wallpaper bundle patch — 同时挂载 Host 存储接口与 Client 背景界面。
 - insert:
     - id: wallpaper
-      name: 'dsh-wallpaper'
+      name: '@dfy-plugins/dsh-wallpaper'

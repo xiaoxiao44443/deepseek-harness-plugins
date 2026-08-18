@@ -1,4 +1,4 @@
-# dsh-archive-manager
+# @dfy-plugins/dsh-archive-manager
 
 DeepSeek Harness 归档会话管理插件：在「设置」里新增「归档管理」页，
 按项目列出已归档的对话，并支持取消归档或永久删除。
@@ -19,7 +19,7 @@ pnpm test            # node --test（归档逻辑，基于临时目录）
 ## 安装
 
 ```bash
-dsh plugin --profile web add /path/to/dsh-archive-manager
+dsh plugin --profile web add /path/to/deepseek-harness-plugins/plugins/archive-manager
 ```
 
 `dsh.bundle.patch` 让插件加入 Profile 层栈；`dsh.client` 让浏览器端扫描并加载

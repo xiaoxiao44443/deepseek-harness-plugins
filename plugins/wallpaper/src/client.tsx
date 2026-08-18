@@ -1,4 +1,4 @@
-/** dsh-wallpaper Client 半区：全局背景层、持久化与设置页。 */
+/** @dfy-plugins/dsh-wallpaper Client 半区：全局背景层、持久化与设置页。 */
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {
@@ -45,6 +45,8 @@ const API_BASE = '/api/dsh-wallpaper';
 const SETTINGS_DEBOUNCE_MS = 180;
 const PANEL_POSITION_KEY = 'dsh-wallpaper.panel-position.v1';
 const PANEL_MARGIN = 12;
+const PAGE_RUNTIME_KEY = '__xiao443DshWallpaperPageRuntime__';
+const CLIENT_BUILD_TOKEN = Object.freeze({});
 
 const BODY_VARIABLES = [
   '--dsh-wallpaper-image-opacity',
@@ -568,6 +570,32 @@ class WallpaperController {
     };
     for (const listener of this.listeners) listener();
   }
+}
+
+interface WallpaperPageRuntime {
+  buildToken: object;
+  controller: WallpaperController;
+}
+
+/**
+ * Keep the body-level wallpaper independent from Cordis fiber churn.
+ *
+ * Client HMR can rebuild a settings-related fiber without replacing this
+ * bundle. Reusing the page-owned controller keeps the media/mask layers and
+ * body variables intact. When the wallpaper bundle itself changes, its new
+ * factory receives a new build token and performs one explicit handoff.
+ */
+function pageController(): WallpaperController {
+  const page = globalThis as typeof globalThis & {
+    [PAGE_RUNTIME_KEY]?: WallpaperPageRuntime;
+  };
+  const current = page[PAGE_RUNTIME_KEY];
+  if (current?.buildToken === CLIENT_BUILD_TOKEN) return current.controller;
+
+  current?.controller.dispose();
+  const controller = new WallpaperController();
+  page[PAGE_RUNTIME_KEY] = { buildToken: CLIENT_BUILD_TOKEN, controller };
+  return controller;
 }
 
 interface RangeFieldProps {
@@ -1114,11 +1142,10 @@ function WallpaperSettingsLauncher({
 }
 
 export function apply(ctx: ClientCtx): void {
-  const controller = new WallpaperController();
+  const controller = pageController();
   ctx.effect(() => {
     controller.mount();
-    return () => controller.dispose();
-  }, 'dsh-wallpaper.background');
+  }, 'dsh-wallpaper.page-background');
 
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(

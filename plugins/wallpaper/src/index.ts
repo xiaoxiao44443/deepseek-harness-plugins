@@ -13,7 +13,8 @@ import { DEFAULT_SETTINGS, normalizeSettings, type WallpaperSettings } from './l
 export const name = 'wallpaper';
 export const inject = ['webServer'];
 
-const DATA_DIR = dshHomePath('storages', 'dsh-wallpaper');
+const DATA_DIR = dshHomePath('storages', 'dfy-plugins', 'wallpaper');
+const LEGACY_DATA_DIR = dshHomePath('storages', 'xiao443', 'dsh-wallpaper');
 const CONFIG_FILE = join(DATA_DIR, 'config.json');
 const IMAGE_FILE = join(DATA_DIR, 'assets', 'current');
 const MAX_JSON_BYTES = 64 * 1024;
@@ -37,6 +38,29 @@ const DEFAULT_CONFIG: StoredConfig = {
   imageVersion: 0,
 };
 
+let storageReady: Promise<void> | undefined;
+
+async function migrateLegacyStorage(): Promise<void> {
+  try {
+    await stat(DATA_DIR);
+    return;
+  } catch (error) {
+    if (errorCode(error) !== 'ENOENT') throw error;
+  }
+  await mkdir(dirname(DATA_DIR), { recursive: true, mode: 0o700 });
+  try {
+    await rename(LEGACY_DATA_DIR, DATA_DIR);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code !== 'ENOENT' && code !== 'EEXIST') throw error;
+  }
+}
+
+function ensureStorageReady(): Promise<void> {
+  storageReady ??= migrateLegacyStorage();
+  return storageReady;
+}
+
 function errorCode(error: unknown): string | undefined {
   return typeof error === 'object' && error !== null && 'code' in error
     ? String((error as { code?: unknown }).code)
@@ -44,6 +68,7 @@ function errorCode(error: unknown): string | undefined {
 }
 
 async function readConfig(): Promise<StoredConfig> {
+  await ensureStorageReady();
   try {
     const parsed = JSON.parse(await readFile(CONFIG_FILE, 'utf8')) as Partial<StoredConfig>;
     return {
@@ -64,6 +89,7 @@ async function readConfig(): Promise<StoredConfig> {
 }
 
 async function writeConfig(config: StoredConfig): Promise<void> {
+  await ensureStorageReady();
   await writeFileAtomic(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, {
     mode: 0o600,
     dirMode: 0o700,
@@ -71,6 +97,7 @@ async function writeConfig(config: StoredConfig): Promise<void> {
 }
 
 async function imageExists(): Promise<boolean> {
+  await ensureStorageReady();
   try {
     return (await stat(IMAGE_FILE)).isFile();
   } catch (error) {
@@ -139,6 +166,7 @@ function decodeFileName(value: string | string[] | undefined): string {
 }
 
 async function writeImageAtomic(content: Buffer): Promise<void> {
+  await ensureStorageReady();
   await mkdir(dirname(IMAGE_FILE), { recursive: true, mode: 0o700 });
   const temporary = `${IMAGE_FILE}.${process.pid}.${randomUUID()}.tmp`;
   try {

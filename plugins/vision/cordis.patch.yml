@@ -1,0 +1,4 @@
+# @dfy-plugins/dsh-vision bundle patch — Host tool/skill plus its Web settings card.
+- insert:
+    - id: vision
+      name: '@dfy-plugins/dsh-vision'
