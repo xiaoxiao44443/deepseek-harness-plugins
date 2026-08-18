@@ -68,7 +68,8 @@ interface ProviderView {
 }
 
 type Activation =
-  | { status: 'disabled' | 'unconfigured' | 'checking' }
+  | { status: 'disabled' | 'unconfigured' | 'unsupported'; message: string }
+  | { status: 'checking' }
   | { status: 'active'; provider: string; model: string }
   | { status: 'error'; message: string };
 
@@ -267,6 +268,7 @@ function activationLabel(activation: Activation | null): string {
     case 'checking': return '正在检查路由';
     case 'disabled': return '已关闭';
     case 'unconfigured': return '尚未配置';
+    case 'unsupported': return '不支持';
     case 'error': return '配置异常';
   }
 }
@@ -430,7 +432,7 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
           <span className="dsh-vision-title">视觉分析</span>
           <span className="dsh-vision-description">让文本模型通过隔离的视觉路由分析图片，主对话只接收文字结果。</span>
         </span>
-        <span className="dsh-vision-badge" title={activation?.status === 'error' ? activation.message : undefined}>
+        <span className="dsh-vision-badge" title={activation !== null && 'message' in activation ? activation.message : undefined}>
           {activationLabel(activation)}
         </span>
         <IconChevronDownOutline14 className="dsh-vision-chevron" data-open={open || undefined} size={16} />
@@ -441,7 +443,9 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
             这里只选择“模型”页面已有的路由，不保存或复制 API Key。图片会发送给所选视觉模型。
           </p>
           {loadError === null ? null : <p className="dsh-vision-note" data-error>{loadError}</p>}
-          {activation?.status === 'error' ? <p className="dsh-vision-note" data-error>{activation.message}</p> : null}
+          {activation?.status === 'error' || activation?.status === 'unsupported'
+            ? <p className="dsh-vision-note" data-error>{activation.message}</p>
+            : null}
           {providers.length === 0 && loadError === null ? (
             <p className="dsh-vision-note">未发现明确声明 image 输入能力的模型，请先在“模型”页面添加视觉路由。</p>
           ) : null}

@@ -19,6 +19,7 @@ test('vision separates runtime names from globally registered tool names', async
   assert.match(host, /const API_PATH = '\/api\/dsh-vision\/routes'/);
   assert.match(host, /const TOOL_NAME = 'dfy_vision_analyze'/);
   assert.match(host, /const SKILL_NAME = 'dfy-vision'/);
+  assert.match(host, /description: VISION_TOOL_DESCRIPTION/);
   assert.match(host, /reasoningEffort: ReasoningEffortId\(config\.reasoningEffort\)/);
   assert.match(host, /reasoning: \{/);
   assert.match(host, /title: 'DFY VISION ANALYZE'/);

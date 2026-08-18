@@ -19,8 +19,12 @@ import {
   imageMediaTypeForPath,
   renderVisionResult,
   textFromBlocks,
+  visionConfigurationUnavailable,
+  visionModelUnsupported,
   VISION_SKILL_CONTENT,
   VISION_SYSTEM_PROMPT,
+  VISION_TOOL_DESCRIPTION,
+  type VisionUnavailableState,
   type VisionResultValue,
 } from './logic.js';
 
@@ -58,7 +62,8 @@ interface ResolvedConfig {
 }
 
 type Activation =
-  | { status: 'disabled' | 'unconfigured' | 'checking' }
+  | VisionUnavailableState
+  | { status: 'checking' }
   | { status: 'active'; provider: string; model: string }
   | { status: 'error'; message: string };
 
@@ -202,9 +207,8 @@ async function analyzeImage(
   question: string,
 ): Promise<VisionResultValue> {
   const modelInfo = await ctx.llm.resolveModelInfo(config.provider, config.model, exec.signal);
-  if (modelInfo.inputModalities === undefined || !modelInfo.inputModalities.includes('image')) {
-    throw new Error(`configured route ${config.provider}/${config.model} does not explicitly declare image input`);
-  }
+  const unsupported = visionModelUnsupported(config.provider, config.model, modelInfo.inputModalities);
+  if (unsupported !== undefined) throw new Error(unsupported.message);
   const filePath = source.filePath?.trim() ?? '';
   const imageRef = source.imageRef?.trim() ?? '';
   if ((filePath.length === 0) === (imageRef.length === 0)) {
@@ -259,7 +263,7 @@ async function analyzeImage(
 function createVisionTool(ctx: Context, current: () => Config) {
   return defineTool({
     name: TOOL_NAME,
-    description: 'Analyze an image with the configured visual route. For attached chat images, copy only the opaque token inside the hidden <image_ref> element.',
+    description: VISION_TOOL_DESCRIPTION,
     parameters: {
       file_path: {
         type: 'string',
@@ -377,7 +381,7 @@ function visionModelView(model: LlmResolvedModelInfo): VisionModelView {
 
 export function apply(ctx: Context, entryConfig: Config): void {
   let source = () => entryConfig;
-  let activation: Activation = { status: 'unconfigured' };
+  let activation: Activation = { status: 'unconfigured', message: '尚未配置视觉提供方和模型，视觉分析不可用' };
   let generation = 0;
   let disposeTool: (() => void) | undefined;
   let disposeSkill: (() => void) | undefined;
@@ -413,23 +417,20 @@ export function apply(ctx: Context, entryConfig: Config): void {
   const refresh = async (): Promise<void> => {
     const ticket = ++generation;
     const config = resolvedConfig(source());
-    if (config.provider.length === 0 || config.model.length === 0) {
+    const unavailable = visionConfigurationUnavailable(config);
+    if (unavailable !== undefined) {
       clearRuntimeFeatures();
-      activation = { status: 'unconfigured' };
-      return;
-    }
-    if (!config.enabled) {
-      clearRuntimeFeatures();
-      activation = { status: 'disabled' };
+      activation = unavailable;
       return;
     }
     activation = { status: 'checking' };
     try {
       const modelInfo = await ctx.llm.resolveModelInfo(config.provider, config.model);
       if (ticket !== generation) return;
-      if (modelInfo.inputModalities === undefined || !modelInfo.inputModalities.includes('image')) {
+      const unsupported = visionModelUnsupported(config.provider, config.model, modelInfo.inputModalities);
+      if (unsupported !== undefined) {
         clearRuntimeFeatures();
-        activation = { status: 'error', message: `${config.provider}/${config.model} 未声明 image 输入能力` };
+        activation = unsupported;
         return;
       }
       if (config.reasoningEffort.length > 0
