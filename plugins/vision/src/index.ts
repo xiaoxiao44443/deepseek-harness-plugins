@@ -44,6 +44,7 @@ export const Config: z<Config> = z.object({
 const SETTINGS_NS = settingsNamespace('dsh-vision');
 const API_PATH = '/api/dsh-vision/routes';
 const TOOL_NAME = 'dfy_vision_analyze';
+const SKILL_NAME = 'dfy-vision';
 const DEFAULT_MAX_TOKENS = 1024;
 
 interface ResolvedConfig {
@@ -374,11 +375,11 @@ export function apply(ctx: Context, entryConfig: Config): void {
     try {
       disposeTool = ctx.tools.register(createVisionTool(ctx, source));
       disposeSkill = ctx.skills.register({
-        name: 'xiao443-vision',
+        name: SKILL_NAME,
         description: '使用独立视觉模型分析图片或界面截图，并把文本观察返回给当前文本模型。',
         source: 'runtime',
         content: VISION_SKILL_CONTENT,
-        invocation: { modelInvocable: false, userInvocable: true },
+        invocation: { modelInvocable: true, userInvocable: true },
       });
     } catch (error) {
       clearRuntimeFeatures();
@@ -439,7 +440,7 @@ export function apply(ctx: Context, entryConfig: Config): void {
       const name = block.presentation?.name ?? block.resource.attachment.name ?? 'image';
       return [{
         type: 'text',
-        text: `<vision_image name="${escapeXmlAttribute(name)}"><image_ref>${block.resource.ref}</image_ref>The image pixels are stored outside this text context. Call ${TOOL_NAME} exactly once with only the text inside image_ref, then answer the user's request from the tool result.</vision_image>`,
+        text: `<vision_image name="${escapeXmlAttribute(name)}"><image_ref>${block.resource.ref}</image_ref>The image pixels are stored outside this text context. Before analyzing this image, load the ${SKILL_NAME} Skill and follow its instructions for this image reference, then answer the user's request from the tool result.</vision_image>`,
       }];
     }, {
       prepare: async () => {

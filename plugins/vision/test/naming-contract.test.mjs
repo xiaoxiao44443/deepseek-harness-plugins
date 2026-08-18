@@ -18,8 +18,13 @@ test('vision separates runtime names from globally registered tool names', async
   assert.match(host, /settingsNamespace\('dsh-vision'\)/);
   assert.match(host, /const API_PATH = '\/api\/dsh-vision\/routes'/);
   assert.match(host, /const TOOL_NAME = 'dfy_vision_analyze'/);
+  assert.match(host, /const SKILL_NAME = 'dfy-vision'/);
   assert.match(host, /title: 'DFY VISION ANALYZE'/);
+  assert.match(host, /invocation: \{ modelInvocable: true, userInvocable: true \}/);
+  assert.match(host, /Before analyzing this image, load the \$\{SKILL_NAME\} Skill/);
   assert.match(host, /ctx\.inject\(\['mediaBlocks'\]/);
   assert.match(client, /namespace: 'dsh-vision'/);
+  assert.match(client, /key: 'dfy_vision_analyze'/);
+  assert.match(client, />DFY VISION ANALYZE</);
   assert.match(client, /\.dsh-vision-card/);
 });

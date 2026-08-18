@@ -1,8 +1,12 @@
-/** @dfy-plugins/dsh-vision Client half: visual-route settings only. */
+/** @dfy-plugins/dsh-vision Client half: visual-route settings and Tool presentation. */
 import React from 'react';
+import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client';
 import {
   IconChevronDownOutline14,
+  IconInspectOutline12,
+  IconSparkle16,
   Menu,
+  StateDot,
   type MenuItem,
 } from '@deepseek-ai/dsh-client-ui-primitives';
 
@@ -133,9 +137,95 @@ const STYLES = `
 .dsh-vision-input-button[data-uploading] svg { animation: dsh-vision-spin 1s linear infinite; }
 .dsh-vision-draft-rail { box-sizing: border-box; min-width: 0; padding: 12px; border: 1px solid var(--dsw-alias-border-l2-darkmode-thin, rgba(127,127,127,.18)); border-radius: 18px; background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-3, rgba(255,255,255,.92))); box-shadow: var(--dsw-shadow-lv1, 0 2px 8px rgba(0,0,0,.06)); }
 .dsh-vision-draft-rail[data-uploading] { opacity: .72; }
+.dsh-vision-tool-card { display: flex; flex-direction: column; }
+.dsh-vision-tool-row { position: relative; display: flex; min-width: 0; height: 24px; align-items: center; overflow: hidden; }
+.dsh-vision-tool-row[data-expandable] { cursor: pointer; }
+.dsh-vision-tool-card[data-state='running'] .dsh-vision-tool-row::after { position: absolute; inset: 0 auto 0 0; width: 300px; animation: dsh-vision-tool-sweep 2.6s ease-out infinite; background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%); content: ''; pointer-events: none; }
+.dsh-vision-tool-leading { display: inline-flex; width: 16px; height: 16px; flex: none; align-items: center; justify-content: center; margin-right: 6px; color: var(--dsw-alias-label-tertiary); }
+.dsh-vision-tool-title { flex: none; color: var(--dsw-alias-label-secondary); font-size: 14px; line-height: 24px; }
+.dsh-vision-tool-separator { width: 2px; height: 2px; flex: none; margin: 0 8px; border-radius: 1px; background: var(--dsw-alias-label-caption); }
+.dsh-vision-tool-summary { min-width: 0; flex: auto; overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 14px; line-height: 24px; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-vision-tool-summary[data-error] { color: var(--dsw-alias-state-error-primary); }
+.dsh-vision-tool-body { display: flex; flex-direction: column; }
+.dsh-vision-tool-output { max-height: 260px; margin: 4px 0 4px 4px; overflow: auto; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-markdown-code-block); color: var(--dsw-alias-label-secondary); white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px 12px; font: var(--dsw-font-markdown-code-block-small); }
+.dsh-vision-tool-output[data-error] { color: var(--dsw-alias-state-error-primary); }
+.dsh-vision-tool-inspect { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin: 4px 0 2px 4px; padding: 2px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; line-height: 16px; }
+.dsh-vision-tool-inspect:hover { background: var(--dsw-alias-interactive-bg-hover-solid); color: var(--dsw-alias-label-primary); }
 @keyframes dsh-vision-spin { to { transform: rotate(360deg); } }
+@keyframes dsh-vision-tool-sweep { 0% { left: -300px; } 90%, 100% { left: 100%; } }
 @media (max-width: 680px) { .dsh-vision-badge { display: none; } }
+@media (prefers-reduced-motion: reduce) { .dsh-vision-tool-card[data-state='running'] .dsh-vision-tool-row::after { display: none; animation: none; } }
 `;
+
+function firstLine(value: string): string {
+  const newline = value.indexOf('\n');
+  return newline === -1 ? value : value.slice(0, newline);
+}
+
+function toolOutput(block: ToolCallViewProps['block']): string | null {
+  if (!('kind' in block)) return null;
+  const parts = block.content.map((item) => item.type === 'text' ? item.text : JSON.stringify(item, null, 2));
+  if (parts.length === 0 && block.error !== undefined) parts.push(`${block.error.name}: ${block.error.code}`);
+  return parts.join('\n') || null;
+}
+
+function visionQuestion(block: ToolCallViewProps['block']): string {
+  const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '';
+  try {
+    const parsed = JSON.parse(argsRaw) as unknown;
+    if (typeof parsed === 'object' && parsed !== null) {
+      const question = (parsed as Record<string, unknown>).question;
+      if (typeof question === 'string' && question.trim().length > 0) return firstLine(question.trim());
+    }
+  } catch {}
+  return '分析图片';
+}
+
+function VisionToolRow({ block, inspect }: ToolCallViewProps): React.ReactElement {
+  const settled = 'kind' in block;
+  const output = toolOutput(block);
+  const state = !settled ? 'running' : block.error?.code === 'interrupted' ? 'stopped' : block.isError ? 'error' : 'ok';
+  const summary = state === 'error' && output !== null ? firstLine(output) : visionQuestion(block);
+  const expandable = output !== null;
+  const [open, setOpen] = React.useState(false);
+  const expanded = open && expandable;
+  const toggle = (): void => { if (expandable) setOpen((value) => !value); };
+
+  return (
+    <div className="dsh-vision-tool-card" data-state={state} data-tool="dfy_vision_analyze">
+      <div
+        className="dsh-vision-tool-row"
+        data-expandable={expandable || undefined}
+        role={expandable ? 'button' : undefined}
+        tabIndex={expandable ? 0 : undefined}
+        aria-expanded={expandable ? expanded : undefined}
+        onClick={toggle}
+        onKeyDown={(event) => {
+          if (!expandable || (event.key !== 'Enter' && event.key !== ' ')) return;
+          event.preventDefault();
+          toggle();
+        }}
+      >
+        <span className="dsh-vision-tool-leading">
+          {state === 'error' ? <StateDot state="error" /> : state === 'stopped' ? <StateDot state="warning" /> : expanded ? <IconChevronDownOutline14 /> : <IconSparkle16 size={14} />}
+        </span>
+        <span className="dsh-vision-tool-title">DFY VISION ANALYZE</span>
+        <span className="dsh-vision-tool-separator" aria-hidden />
+        <span className="dsh-vision-tool-summary" data-error={state === 'error' || undefined}>{summary}</span>
+      </div>
+      {expanded ? (
+        <div className="dsh-vision-tool-body">
+          <pre className="dsh-vision-tool-output" data-error={state === 'error' || undefined}>{output}</pre>
+          {inspect === undefined ? null : (
+            <button type="button" className="dsh-vision-tool-inspect" onClick={inspect}>
+              <IconInspectOutline12 /> Inspect
+            </button>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function draftOf(value: VisionSettings | undefined): Draft {
   const provider = value?.provider ?? '';
@@ -388,6 +478,10 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
 
 export function apply(ctx: ClientCtx): void {
   const scope = ctx.settingsScope.bind<VisionSettings>({ namespace: 'dsh-vision' });
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview',
+    key: 'dfy_vision_analyze',
+  }, VisionToolRow));
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: 'dsh-vision',

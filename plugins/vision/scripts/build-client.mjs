@@ -15,6 +15,7 @@ await build({
     'react',
     'react/jsx-runtime',
     '@deepseek-ai/dsh-client-ui-primitives',
+    '@deepseek-ai/dsh-client-ui-tool/client',
   ],
   outfile: TEMP,
   logLevel: 'info',

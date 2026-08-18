@@ -17,7 +17,7 @@
 | CSS、DOM、localStorage | `dsh-<slug>-...` | `dsh-wallpaper-card` |
 | 设置命名空间 | 优先 `dsh-<slug>`；已有 ID 保持不变 | `dsh-vision` |
 | 工具名 | `dfy_<slug>_<action>` | `dfy_vision_analyze`；可见标题 `DFY VISION ANALYZE` |
-| Skill 名 | `xiao443-<slug>` | `xiao443-vision` |
+| Skill 名 | `dfy-<slug>` | `dfy-vision` |
 | 持久化目录 | `$DSH_HOME/storages/dfy-plugins/<slug>` | `$DSH_HOME/storages/dfy-plugins/wallpaper` |
 
 ## 约束
