@@ -46,9 +46,15 @@ interface SessionGroup {
 
 const STYLES = `
 .dsh-archive-root { padding: 0 4px; color: inherit; }
-.dsh-archive-root h3 { margin: 0 0 14px; font-size: 17px; }
+.dsh-archive-page-heading { margin: 0 0 14px; }
+.dsh-archive-root h3 { margin: 0; font-size: 17px; }
+.dsh-archive-intro-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 24px; }
+.dsh-archive-delete-all { display: inline-flex; min-height: 34px; flex: none; align-items: center; gap: 6px; padding: 0 11px; border: 0; border-radius: 10px; color: #e5484d; background: rgba(229,72,77,.12); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background-color .15s ease, opacity .15s ease; }
+.dsh-archive-delete-all:hover:not(:disabled) { background: rgba(229,72,77,.2); }
+.dsh-archive-delete-all:disabled { cursor: wait; opacity: .48; }
+.dsh-archive-delete-all svg { width: 15px; height: 15px; }
 .dsh-archive-intro, .dsh-archive-empty { margin: 0; color: inherit; font-size: 12px; opacity: .58; }
-.dsh-archive-intro { margin-bottom: 24px; }
+.dsh-archive-intro { min-width: 0; flex: 1; }
 .dsh-archive-error { margin: 12px 0; color: #e5484d; font-size: 13px; }
 .dsh-archive-group + .dsh-archive-group { margin-top: 24px; }
 .dsh-archive-group-header { display: flex; align-items: center; gap: 8px; margin: 0 2px 10px; min-width: 0; }
@@ -145,8 +151,10 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
   const [sessions, setSessions] = React.useState<SessionRow[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<{ id: string; action: 'restore' | 'delete' } | null>(null);
-  const [deleteTarget, setDeleteTarget] = React.useState<SessionRow | null>(null);
+  const [deletingAll, setDeletingAll] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState<SessionRow | 'all' | null>(null);
   const cancelDeleteRef = React.useRef<HTMLButtonElement>(null);
+  const operationBusy = busy !== null || deletingAll;
 
   const refresh = React.useCallback(() => {
     setError(null);
@@ -182,7 +190,7 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
   }, [deleteTarget]);
 
   const performAction = (row: SessionRow, action: 'restore' | 'delete'): void => {
-    if (busy !== null) return;
+    if (operationBusy) return;
     setBusy({ id: row.id, action });
     setError(null);
     fetch(`/api/dsh-archive-manager/${action === 'restore' ? 'unarchive' : 'delete'}`, {
@@ -203,7 +211,7 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
   };
 
   const runAction = (row: SessionRow, action: 'restore' | 'delete'): void => {
-    if (busy !== null) return;
+    if (operationBusy) return;
     if (action === 'delete') {
       setDeleteTarget(row);
       return;
@@ -211,12 +219,29 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
     performAction(row, action);
   };
 
-  const confirmDelete = (): void => {
-    const row = deleteTarget;
-    if (row === null) return;
-    setDeleteTarget(null);
-    performAction(row, 'delete');
+  const performDeleteAll = (): void => {
+    if (operationBusy || sessions === null || sessions.length === 0) return;
+    setDeletingAll(true);
+    setError(null);
+    fetch('/api/dsh-archive-manager/delete-all', { method: 'POST' })
+      .then(async (r) => {
+        const data = (await r.json()) as { ok: boolean; error?: string };
+        if (!r.ok || !data.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
+      })
+      .then(() => setSessions([]))
+      .catch((e: unknown) => setError(String(e)))
+      .finally(() => setDeletingAll(false));
   };
+
+  const confirmDelete = (): void => {
+    const target = deleteTarget;
+    if (target === null) return;
+    setDeleteTarget(null);
+    if (target === 'all') performDeleteAll();
+    else performAction(target, 'delete');
+  };
+
+  const projectCount = sessions === null ? 0 : groupSessions(sessions).length;
 
   const rows =
     sessions === null
@@ -261,7 +286,7 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
                           type: 'button',
                           className: 'dsh-archive-trash',
                           onClick: () => runAction(row, 'delete'),
-                          disabled: busy !== null,
+                          disabled: operationBusy,
                           title: '永久删除',
                           'aria-label': `永久删除「${row.title}」`,
                         },
@@ -273,7 +298,7 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
                           type: 'button',
                           className: 'dsh-archive-restore',
                           onClick: () => runAction(row, 'restore'),
-                          disabled: busy !== null,
+                          disabled: operationBusy,
                         },
                         restoring ? '恢复中…' : '取消归档',
                       ),
@@ -288,11 +313,32 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
     'div',
     { className: 'dsh-archive-root' },
     React.createElement('style', null, STYLES),
-    React.createElement('h3', null, '归档管理'),
     React.createElement(
-      'p',
-      { className: 'dsh-archive-intro' },
-      '已归档的对话不会出现在会话列表中，可随时取消归档或永久删除。',
+      'div',
+      { className: 'dsh-archive-page-heading' },
+      React.createElement('h3', null, '归档管理'),
+    ),
+    React.createElement(
+      'div',
+      { className: 'dsh-archive-intro-row' },
+      React.createElement(
+        'p',
+        { className: 'dsh-archive-intro' },
+        '已归档的对话不会出现在会话列表中，可随时取消归档或永久删除。',
+      ),
+      sessions !== null && sessions.length > 0
+        ? React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-archive-delete-all',
+              disabled: operationBusy,
+              onClick: () => setDeleteTarget('all'),
+            },
+            React.createElement(TrashIcon),
+            deletingAll ? '删除中…' : '全部删除',
+          )
+        : null,
     ),
     error === null ? null : React.createElement('p', { className: 'dsh-archive-error' }, error),
     rows,
@@ -325,23 +371,32 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
                 React.createElement(
                   'div',
                   { id: 'dsh-archive-delete-title', className: 'dsh-archive-modal-title' },
-                  '永久删除这条对话？',
+                  deleteTarget === 'all' ? '永久删除全部归档对话？' : '永久删除这条对话？',
                 ),
                 React.createElement(
                   'p',
                   { id: 'dsh-archive-delete-description', className: 'dsh-archive-modal-description' },
-                  '删除后无法恢复，对话记录将从本机彻底移除。',
+                  deleteTarget === 'all'
+                    ? '全部归档对话都将从本机彻底移除，删除后无法恢复。'
+                    : '删除后无法恢复，对话记录将从本机彻底移除。',
                 ),
               ),
             ),
             React.createElement(
               'div',
               { className: 'dsh-archive-modal-session' },
-              React.createElement('div', { className: 'dsh-archive-modal-session-title' }, deleteTarget.title),
               React.createElement(
                 'div',
-                { className: 'dsh-archive-modal-session-project', title: deleteTarget.projectPath ?? undefined },
-                `项目：${deleteTarget.projectTitle}`,
+                { className: 'dsh-archive-modal-session-title' },
+                deleteTarget === 'all' ? `${sessions?.length ?? 0} 条归档对话` : deleteTarget.title,
+              ),
+              React.createElement(
+                'div',
+                {
+                  className: 'dsh-archive-modal-session-project',
+                  title: deleteTarget === 'all' ? undefined : deleteTarget.projectPath ?? undefined,
+                },
+                deleteTarget === 'all' ? `涉及 ${projectCount} 个项目` : `项目：${deleteTarget.projectTitle}`,
               ),
             ),
             React.createElement(
@@ -360,7 +415,7 @@ function ArchivesSection({ close: _close }: { close: () => void }): React.ReactE
               React.createElement(
                 'button',
                 { type: 'button', className: 'dsh-archive-modal-delete', onClick: confirmDelete },
-                '永久删除',
+                deleteTarget === 'all' ? '全部删除' : '永久删除',
               ),
             ),
           ),

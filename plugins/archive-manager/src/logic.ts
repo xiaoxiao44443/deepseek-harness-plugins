@@ -170,10 +170,8 @@ export async function listArchivedSessions(): Promise<ArchivedSession[]> {
  * 双重校验防止路径注入与误删活跃会话。
  * @returns 删除的目录数量（0 = 未归档或不存在）。
  */
-export async function deleteArchivedSession(id: string): Promise<number> {
-  if (!isValidSessionId(id)) throw new Error(`invalid session id: ${JSON.stringify(id)}`);
-  const archived = new Set(await readArchivedIds());
-  if (!archived.has(id)) return 0;
+async function deleteArchivedSessionDirectories(ids: ReadonlySet<string>): Promise<number> {
+  if (ids.size === 0) return 0;
   let projects: string[] = [];
   try {
     projects = await readdir(sessionsRoot());
@@ -182,14 +180,34 @@ export async function deleteArchivedSession(id: string): Promise<number> {
   }
   let deleted = 0;
   for (const project of projects) {
-    const target = join(sessionsRoot(), project, id);
+    let entries: string[] = [];
     try {
-      await stat(target);
-      await rm(target, { recursive: true });
-      deleted += 1;
+      entries = await readdir(join(sessionsRoot(), project));
     } catch {
-      // 不存在或删除失败：继续其他项目目录
+      continue;
+    }
+    for (const entry of entries) {
+      if (!ids.has(entry) || !isValidSessionId(entry)) continue;
+      try {
+        await rm(join(sessionsRoot(), project, entry), { recursive: true });
+        deleted += 1;
+      } catch {
+        // 不存在或删除失败：继续其他会话目录
+      }
     }
   }
   return deleted;
+}
+
+export async function deleteArchivedSession(id: string): Promise<number> {
+  if (!isValidSessionId(id)) throw new Error(`invalid session id: ${JSON.stringify(id)}`);
+  const archived = new Set(await readArchivedIds());
+  if (!archived.has(id)) return 0;
+  return deleteArchivedSessionDirectories(new Set([id]));
+}
+
+/** 永久删除当前仍存在于磁盘的全部归档会话。 */
+export async function deleteAllArchivedSessions(): Promise<number> {
+  const archived = new Set((await readArchivedIds()).filter(isValidSessionId));
+  return deleteArchivedSessionDirectories(archived);
 }

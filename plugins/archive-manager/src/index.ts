@@ -5,11 +5,17 @@
  * GET  /api/dsh-archive-manager/list   -> { sessions: [{ id, title, projectTitle, projectPath, updatedAt }] }
  * POST /api/dsh-archive-manager/unarchive -> { ok }（body: { id }）
  * POST /api/dsh-archive-manager/delete -> { ok, deleted }（body: { id }）
+ * POST /api/dsh-archive-manager/delete-all -> { ok, deleted }
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver';
-import { deleteArchivedSession, isValidSessionId, listArchivedSessions } from './logic.js';
+import {
+  deleteAllArchivedSessions,
+  deleteArchivedSession,
+  isValidSessionId,
+  listArchivedSessions,
+} from './logic.js';
 
 export const name = 'archive-manager';
 
@@ -152,7 +158,22 @@ export function apply(ctx: Context): void {
     },
   };
 
+  const deleteAllRoute: WebRoute = {
+    kind: 'exact',
+    path: '/api/dsh-archive-manager/delete-all',
+    async handler(req, res) {
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+      try {
+        const deleted = await deleteAllArchivedSessions();
+        sendJson(res, 200, { ok: true, deleted });
+      } catch (error) {
+        sendJson(res, 500, { ok: false, error: String(error) });
+      }
+    },
+  };
+
   ctx.webServer.register(listRoute);
   ctx.webServer.register(unarchiveRoute);
   ctx.webServer.register(deleteRoute);
+  ctx.webServer.register(deleteAllRoute);
 }

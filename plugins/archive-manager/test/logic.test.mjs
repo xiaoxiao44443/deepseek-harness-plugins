@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  deleteAllArchivedSessions,
   deleteArchivedSession,
   isValidSessionId,
   listArchivedSessions,
@@ -131,4 +132,33 @@ test('deleteArchivedSession：归档会话可删、活跃会话拒绝、非法 i
 
   // 非法 id：抛错
   await assert.rejects(() => deleteArchivedSession('../../x'), /invalid session id/);
+});
+
+test('deleteAllArchivedSessions：删除全部归档会话并保留活跃会话', async (t) => {
+  const root = makeRoot();
+  process.env.DSH_HOME = root;
+  t.after(() => {
+    if (ORIGINAL_HOME === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = ORIGINAL_HOME;
+    return rm(root, { recursive: true, force: true });
+  });
+  const { archivedId, liveId } = await scaffold(root);
+  const secondArchivedId = 'session-66666666-7777-8888-9999-000000000000';
+  await mkdir(join(root, 'sessions', 'proj-b', secondArchivedId), { recursive: true });
+  await writeFile(join(root, 'sessions', 'proj-b', secondArchivedId, 'session.jsonl.zstd'), 'x');
+
+  const workspacePath = join(root, 'storages', 'workspace.json');
+  const workspace = JSON.parse(await readFile(workspacePath, 'utf8'));
+  workspace.global.archivedSessionIds.push(secondArchivedId);
+  workspace.tables.workspaces['workspace-b'] = {
+    path: '/tmp/项目乙',
+    title: '项目乙',
+    sessionIds: [secondArchivedId, liveId],
+  };
+  await writeFile(workspacePath, JSON.stringify(workspace));
+
+  assert.equal(await deleteAllArchivedSessions(), 2);
+  assert.deepEqual(await listArchivedSessions(), []);
+  assert.deepEqual(await readArchivedIds(), [archivedId, secondArchivedId]);
+  assert.ok((await stat(join(root, 'sessions', 'proj-b', liveId))).isDirectory());
 });
