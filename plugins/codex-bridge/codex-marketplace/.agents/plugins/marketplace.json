@@ -1,0 +1,20 @@
+{
+  "name": "deepseek-harness-plugins",
+  "interface": {
+    "displayName": "Deepseek Harness Plugins"
+  },
+  "plugins": [
+    {
+      "name": "deepseek-harness",
+      "source": {
+        "source": "local",
+        "path": "./plugins/deepseek-harness"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

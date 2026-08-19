@@ -1,0 +1,4 @@
+# @dfy-plugins/dsh-codex-bridge — DSH Host 桥接服务和设置卡。
+- insert:
+    - id: codex-bridge
+      name: '@dfy-plugins/dsh-codex-bridge'
