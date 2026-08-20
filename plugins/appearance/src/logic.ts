@@ -61,19 +61,22 @@ export const PROCESS_NODE_KINDS = new Set([
 export interface ProcessFlowNode {
   kind: string;
   hasOutput?: boolean;
+  hasArtifact?: boolean;
 }
 
 export interface ProcessSegmentPlan {
   outputIndex: number;
   collapseIndices: number[];
+  artifactIndices: number[];
   toolCount: number;
   contextCount: number;
 }
 
-/** Group each process run with the next visible output, preserving text and plugin-rendered artifacts. */
+/** Group each process run with the next visible output and attach plugin artifacts to that output. */
 export function planCompletedProcessSegments(nodes: readonly ProcessFlowNode[]): ProcessSegmentPlan[] {
   const segments: ProcessSegmentPlan[] = [];
   let pending: number[] = [];
+  let artifacts: number[] = [];
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
     if (node?.hasOutput === true) {
@@ -81,15 +84,36 @@ export function planCompletedProcessSegments(nodes: readonly ProcessFlowNode[]):
         segments.push({
           outputIndex: index,
           collapseIndices: pending,
+          artifactIndices: artifacts,
           toolCount: pending.filter((item) => nodes[item]?.kind === 'tool-call' || nodes[item]?.kind === 'command').length,
           contextCount: pending.filter((item) => nodes[item]?.kind === 'context').length,
         });
       }
       pending = [];
+      artifacts = [];
+      continue;
+    }
+    if (node?.hasArtifact === true) {
+      pending.push(index);
+      artifacts.push(index);
       continue;
     }
     if (PROCESS_NODE_KINDS.has(node?.kind ?? '') || node?.kind === 'assistant-step') {
       pending.push(index);
+    }
+  }
+  const lastArtifact = artifacts.at(-1);
+  if (lastArtifact !== undefined) {
+    const terminalPending = pending.filter((index) => index <= lastArtifact);
+    const terminalArtifacts = artifacts.filter((index) => index <= lastArtifact);
+    if (terminalPending.length > 0) {
+      segments.push({
+        outputIndex: lastArtifact,
+        collapseIndices: terminalPending,
+        artifactIndices: terminalArtifacts,
+        toolCount: terminalPending.filter((item) => nodes[item]?.kind === 'tool-call' || nodes[item]?.kind === 'command').length,
+        contextCount: terminalPending.filter((item) => nodes[item]?.kind === 'context').length,
+      });
     }
   }
   return segments;

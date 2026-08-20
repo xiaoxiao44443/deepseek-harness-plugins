@@ -31,8 +31,8 @@ test('completed turn plan folds each process run before its own visible text out
     { kind: 'assistant-step', hasOutput: true },
   ]);
   assert.deepEqual(plan, [
-    { outputIndex: 3, collapseIndices: [0, 1, 2], toolCount: 1, contextCount: 1 },
-    { outputIndex: 5, collapseIndices: [4], toolCount: 1, contextCount: 0 },
+    { outputIndex: 3, collapseIndices: [0, 1, 2], artifactIndices: [], toolCount: 1, contextCount: 1 },
+    { outputIndex: 5, collapseIndices: [4], artifactIndices: [], toolCount: 1, contextCount: 0 },
   ]);
 });
 
@@ -46,14 +46,37 @@ test('completed turn plan does not hide trailing process or terminal notices wit
   assert.deepEqual(plan, []);
 });
 
-test('plugin-rendered artifacts are visible outputs and are never folded as tool process', () => {
+test('plugin-rendered artifacts are promoted after the following visible response', () => {
   const plan = planCompletedProcessSegments([
     { kind: 'context' },
     { kind: 'tool-call' },
-    { kind: 'tool-call', hasOutput: true },
+    { kind: 'tool-call', hasArtifact: true },
     { kind: 'assistant-step', hasOutput: true },
   ]);
   assert.deepEqual(plan, [
-    { outputIndex: 2, collapseIndices: [0, 1], toolCount: 1, contextCount: 1 },
+    { outputIndex: 3, collapseIndices: [0, 1, 2], artifactIndices: [2], toolCount: 2, contextCount: 1 },
+  ]);
+});
+
+test('a trailing plugin artifact is promoted while later unfinished process remains visible', () => {
+  const plan = planCompletedProcessSegments([
+    { kind: 'context' },
+    { kind: 'tool-call', hasArtifact: true },
+    { kind: 'command' },
+  ]);
+  assert.deepEqual(plan, [
+    { outputIndex: 1, collapseIndices: [0, 1], artifactIndices: [1], toolCount: 1, contextCount: 1 },
+  ]);
+});
+
+test('multiple artifacts stay ordered and attach to one visible response', () => {
+  const plan = planCompletedProcessSegments([
+    { kind: 'tool-call', hasArtifact: true },
+    { kind: 'assistant-step' },
+    { kind: 'tool-call', hasArtifact: true },
+    { kind: 'assistant-step', hasOutput: true },
+  ]);
+  assert.deepEqual(plan, [
+    { outputIndex: 3, collapseIndices: [0, 1, 2], artifactIndices: [0, 2], toolCount: 2, contextCount: 0 },
   ]);
 });

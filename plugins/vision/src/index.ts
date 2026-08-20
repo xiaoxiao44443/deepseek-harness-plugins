@@ -4,6 +4,7 @@ import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attach
 import { BlockAssembler, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-fs';
+import type {} from '@deepseek-ai/dsh-session-persistence';
 import { settingsNamespace } from '@deepseek-ai/dsh-settings';
 import type {} from '@deepseek-ai/dsh-skill';
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -16,7 +17,16 @@ import {
   decodeResourceReference,
   getProcessResourceRegistry,
 } from '@dfy-plugins/resource-core';
-import { createOfficialImageBlock, detectImageMediaType } from '@dfy-plugins/image-protocol';
+import {
+  createOfficialImageBlock,
+  decodeSessionImageRef,
+  detectImageMediaType,
+} from '@dfy-plugins/image-protocol';
+import {
+  readSessionImage,
+  type ResolveSessionDirectory,
+} from '@dfy-plugins/image-protocol/session-storage';
+import { dirname, isAbsolute } from 'node:path';
 
 import {
   collectVisionImageSources,
@@ -36,7 +46,7 @@ import {
 } from './logic.js';
 
 export const name = 'vision';
-export const inject = ['llm', 'tools', 'fs', 'attachments', 'skills'];
+export const inject = ['llm', 'tools', 'fs', 'attachments', 'skills', 'sessionPersistence'];
 
 export interface Config {
   enabled?: boolean;
@@ -194,12 +204,67 @@ async function saveToolImage(
   return { label: target.displayPath, ref };
 }
 
+function normalizeImageToken(token: string): string {
+  const trimmed = token.trim();
+  const quoted = /^(?:["']([A-Za-z0-9_-]+)["']|([A-Za-z0-9_-]+)["']|["']([A-Za-z0-9_-]+))$/.exec(trimmed);
+  return quoted?.[1] ?? quoted?.[2] ?? quoted?.[3] ?? trimmed;
+}
+
+async function persistedSessionDirectory(
+  ctx: Context,
+  sessionId: string,
+  rememberedSessionDirs: Map<string, string>,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const remembered = rememberedSessionDirs.get(sessionId);
+  if (remembered !== undefined) return remembered;
+  const headers = await ctx.sessionPersistence.list(signal);
+  const header = headers.find((candidate) => String(candidate.id) === sessionId);
+  if (header === undefined) return undefined;
+  const location = ctx.sessionPersistence.locate(header);
+  if (location === undefined || !isAbsolute(location.path)) return undefined;
+  const directory = dirname(location.path);
+  rememberedSessionDirs.set(sessionId, directory);
+  return directory;
+}
+
+function sessionDirectoryResolver(
+  ctx: Context,
+  rememberedSessionDirs: Map<string, string>,
+): ResolveSessionDirectory {
+  return (sessionId, signal) => persistedSessionDirectory(ctx, sessionId, rememberedSessionDirs, signal);
+}
+
 async function readReferencedImage(
   ctx: Context,
   exec: ToolRunContext,
   imageRef: string,
+  rememberedSessionDirs: Map<string, string>,
 ): Promise<ResolvedToolImage> {
-  const ref = decodeImageRef(imageRef);
+  const normalized = normalizeImageToken(imageRef);
+  let sessionRef: ReturnType<typeof decodeSessionImageRef> | undefined;
+  try { sessionRef = decodeSessionImageRef(normalized); } catch {}
+  if (sessionRef !== undefined) {
+    const stored = await readSessionImage(
+      sessionRef,
+      sessionDirectoryResolver(ctx, rememberedSessionDirs),
+      exec.signal,
+      Math.min(ctx.attachments.imageLimits.maxImageBytes, ctx.attachments.imageLimits.maxMessageImageBytes),
+    );
+    // Visual-model adapters consume official Attachment refs. Once a generated
+    // result is explicitly used as vision input, admit it through that official
+    // boundary while keeping the session artifact as its canonical output copy.
+    const ref = await ctx.attachments.saveImage({
+      data: stored.data,
+      mediaType: stored.ref.mediaType,
+      ...(stored.ref.name === undefined ? {} : { name: stored.ref.name }),
+    });
+    return {
+      label: `generated:${stored.ref.name ?? stored.ref.imageId.slice(0, 8)}`,
+      ref,
+    };
+  }
+  const ref = decodeImageRef(normalized);
   const stored = await ctx.attachments.readImage(ref, exec.signal);
   return {
     label: stored.ref.name === undefined ? String(stored.ref.attachmentId) : `attachment:${stored.ref.name}`,
@@ -241,6 +306,7 @@ async function analyzeImages(
   ctx: Context,
   exec: ToolRunContext,
   config: ResolvedConfig,
+  rememberedSessionDirs: Map<string, string>,
   source: VisionImageSourceInput,
   question: string,
 ): Promise<VisionResultValue> {
@@ -253,7 +319,9 @@ async function analyzeImages(
   const images: ResolvedToolImage[] = [];
   for (const item of sources) {
     if (item.kind === 'file') images.push(await saveToolImage(ctx, exec, item.value));
-    else if (item.kind === 'attachment') images.push(await readReferencedImage(ctx, exec, item.value));
+    else if (item.kind === 'attachment') {
+      images.push(await readReferencedImage(ctx, exec, item.value, rememberedSessionDirs));
+    }
     else images.push(await readResourceImage(ctx, exec, item.value));
   }
 
@@ -340,7 +408,7 @@ function presentVisionResult(result: ToolResult) {
   }
 }
 
-function createVisionTool(ctx: Context, current: () => Config) {
+function createVisionTool(ctx: Context, current: () => Config, rememberedSessionDirs: Map<string, string>) {
   return defineTool({
     name: TOOL_NAME,
     description: VISION_TOOL_DESCRIPTION,
@@ -356,12 +424,12 @@ function createVisionTool(ctx: Context, current: () => Config) {
       },
       image_ref: {
         type: 'string',
-        description: 'Single opaque Attachment token retained for compatibility. Prefer image_refs for a batch.',
+        description: 'Single opaque uploaded-attachment or generated-session-image token retained for compatibility. Prefer image_refs for a batch.',
       },
       image_refs: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Opaque Attachment tokens copied from all relevant <image_ref> values and analyzed together in one call.',
+        description: 'Opaque uploaded-attachment or generated-session-image tokens copied from all relevant <image_ref> values and analyzed together in one call.',
       },
       resource_ref: {
         type: 'string',
@@ -416,7 +484,7 @@ function createVisionTool(ctx: Context, current: () => Config) {
       presentationMeta: (_args, value) => visionPresentationMeta(value as VisionResultValue),
     },
     isConcurrencySafe: () => true,
-    execute: async (args, exec) => analyzeImages(ctx, exec, resolvedConfig(current()), {
+    execute: async (args, exec) => analyzeImages(ctx, exec, resolvedConfig(current()), rememberedSessionDirs, {
       ...(args.file_path === undefined ? {} : { filePath: args.file_path }),
       ...(args.file_paths === undefined ? {} : { filePaths: args.file_paths }),
       ...(args.image_ref === undefined ? {} : { imageRef: args.image_ref }),
@@ -499,6 +567,7 @@ function visionModelView(model: LlmResolvedModelInfo): VisionModelView {
 }
 
 export function apply(ctx: Context, entryConfig: Config): void {
+  const rememberedSessionDirs = new Map<string, string>();
   let source = () => entryConfig;
   let activation: Activation = { status: 'unconfigured', message: '尚未配置视觉提供方和模型，视觉分析不可用' };
   let generation = 0;
@@ -519,7 +588,7 @@ export function apply(ctx: Context, entryConfig: Config): void {
     if (disposeSkill !== undefined && disposeTool !== undefined) return;
     clearRuntimeFeatures();
     try {
-      disposeTool = ctx.tools.register(createVisionTool(ctx, source));
+      disposeTool = ctx.tools.register(createVisionTool(ctx, source, rememberedSessionDirs));
       disposeSkill = ctx.skills.register({
         name: SKILL_NAME,
         description: '使用独立视觉模型分析图片或界面截图，并把文本观察返回给当前文本模型。',

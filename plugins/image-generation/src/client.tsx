@@ -74,7 +74,32 @@ interface ImageBlock {
   attachment: ImageAttachmentRef;
 }
 
-type ImageLoader = (attachment: ImageAttachmentRef) => Promise<string>;
+interface SessionImageRef {
+  kind: 'dsh-session-image';
+  version: 1;
+  sessionId: string;
+  imageId: string;
+  mediaType: string;
+  bytes: number;
+  width: number;
+  height: number;
+  name?: string;
+}
+
+interface SessionImageBlock {
+  type: 'dfy-session-image';
+  version: 1;
+  ref: string;
+  image: SessionImageRef;
+}
+
+interface DisplayImage {
+  key: string;
+  ref: string;
+  name?: string;
+}
+
+type ImageLoader = (ref: string) => Promise<string>;
 
 interface ImageLabels {
   image: string;
@@ -213,8 +238,7 @@ function encodeImageRef(ref: ImageAttachmentRef): string {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
-function loadReferencedImage(attachment: ImageAttachmentRef): Promise<string> {
-  const ref = encodeImageRef(attachment);
+function loadReferencedImage(ref: string): Promise<string> {
   const cached = resourceUrls.get(ref);
   if (cached !== undefined) return cached;
   const pending = fetch(`${RESOURCE_API}?ref=${encodeURIComponent(ref)}`, { cache: 'force-cache' })
@@ -233,24 +257,35 @@ function isImageBlock(value: unknown): value is ImageBlock {
   return block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null;
 }
 
-function ImageThumbnail({ attachment, load, labels, onOpen }: {
-  attachment: ImageAttachmentRef;
+function isSessionImageBlock(value: unknown): value is SessionImageBlock {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const block = value as Partial<SessionImageBlock>;
+  return block.type === 'dfy-session-image'
+    && block.version === 1
+    && typeof block.ref === 'string'
+    && typeof block.image === 'object'
+    && block.image !== null
+    && block.image.kind === 'dsh-session-image';
+}
+
+function ImageThumbnail({ image, load, labels, onOpen }: {
+  image: DisplayImage;
   load: ImageLoader;
   labels: ImageLabels;
   onOpen(url: string, alt: string): void;
 }): React.ReactElement {
   const [attempt, setAttempt] = React.useState(0);
   const [state, setState] = React.useState<{ url?: string; failed?: boolean }>({});
-  const alt = attachment.name ?? labels.image;
+  const alt = image.name ?? labels.image;
   React.useEffect(() => {
     let active = true;
     setState({});
-    void load(attachment).then(
+    void load(image.ref).then(
       (url) => { if (active) setState({ url }); },
       () => { if (active) setState({ failed: true }); },
     );
     return () => { active = false; };
-  }, [attachment, attempt, load]);
+  }, [image.ref, attempt, load]);
   if (state.failed === true) {
     return <button type="button" className="dsh-imagegen-thumb dsh-imagegen-retry" onClick={() => setAttempt((value) => value + 1)}>{labels.loadFailed}</button>;
   }
@@ -269,7 +304,7 @@ function ImageThumbnail({ attachment, load, labels, onOpen }: {
 }
 
 function ImageGallery({ images, load, labels }: {
-  images: readonly { attachment: ImageAttachmentRef }[];
+  images: readonly DisplayImage[];
   load: ImageLoader;
   labels: ImageLabels;
 }): React.ReactElement | null {
@@ -284,10 +319,10 @@ function ImageGallery({ images, load, labels }: {
   return (
     <>
       <div className="dsh-imagegen-gallery" data-single={images.length === 1 ? 'true' : 'false'}>
-        {images.map(({ attachment }) => (
+        {images.map((image) => (
           <ImageThumbnail
-            key={String(attachment.attachmentId)}
-            attachment={attachment}
+            key={image.key}
+            image={image}
             load={load}
             labels={labels}
             onOpen={(url, alt) => setOpen({ url, alt })}
@@ -311,7 +346,7 @@ function firstLine(value: string): string {
 function toolOutput(block: ToolCallViewProps['block']): string | null {
   if (!('kind' in block)) return null;
   const parts = block.content.flatMap((item: unknown) => {
-    if (isImageBlock(item)) return [];
+    if (isImageBlock(item) || isSessionImageBlock(item)) return [];
     if (typeof item === 'object' && item !== null && (item as { type?: unknown }).type === 'text') {
       const text = (item as { text?: unknown }).text;
       return typeof text === 'string' ? [text] : [];
@@ -331,11 +366,19 @@ function toolPrompt(block: ToolCallViewProps['block']): string {
   return '生成图片';
 }
 
-function resultImages(block: ToolCallViewProps['block']): ImageBlock[] {
+function resultImages(block: ToolCallViewProps['block']): DisplayImage[] {
   if (!('kind' in block) || block.resultView?.card !== 'generic') return [];
-  const images: ImageBlock[] = [];
+  const images: DisplayImage[] = [];
   for (const item of block.resultView.content ?? []) {
-    if (isImageBlock(item)) images.push(item);
+    if (isSessionImageBlock(item)) {
+      images.push({ key: item.image.imageId, ref: item.ref, name: item.image.name });
+    } else if (isImageBlock(item)) {
+      images.push({
+        key: String(item.attachment.attachmentId),
+        ref: encodeImageRef(item.attachment),
+        name: item.attachment.name,
+      });
+    }
   }
   return images;
 }
@@ -348,7 +391,7 @@ function ImageToolRow({ block, inspect }: ToolCallViewProps): React.ReactElement
   const summary = state === 'error' && output !== null ? firstLine(output) : toolPrompt(block);
   const [open, setOpen] = React.useState(false);
   const expandable = output !== null;
-  const loader = React.useCallback<ImageLoader>((attachment) => loadReferencedImage(attachment), []);
+  const loader = React.useCallback<ImageLoader>((ref) => loadReferencedImage(ref), []);
   const labels = {
     image: '生成的图片',
     open: '打开原图',
@@ -359,7 +402,12 @@ function ImageToolRow({ block, inspect }: ToolCallViewProps): React.ReactElement
   const toggle = (): void => { if (expandable) setOpen((value) => !value); };
 
   return (
-    <div className="dsh-imagegen-tool" data-state={state} data-tool="dfy_image_generate">
+    <div
+      className="dsh-imagegen-tool"
+      data-state={state}
+      data-tool="dfy_image_generate"
+      data-dsh-image-output={images.length === 0 ? undefined : ''}
+    >
       <div
         className="dsh-imagegen-tool-row"
         data-expandable={expandable || undefined}
@@ -381,8 +429,8 @@ function ImageToolRow({ block, inspect }: ToolCallViewProps): React.ReactElement
         <span className="dsh-imagegen-tool-summary" data-error={state === 'error' || undefined}>{summary}</span>
       </div>
       {images.length === 0 ? null : (
-        <div className="dsh-imagegen-tool-gallery">
-          <ImageGallery images={images.map((image) => ({ attachment: image.attachment }))} load={loader} labels={labels} />
+        <div className="dsh-imagegen-tool-gallery" data-dsh-artifact-content="image">
+          <ImageGallery images={images} load={loader} labels={labels} />
         </div>
       )}
       {open && output !== null ? (

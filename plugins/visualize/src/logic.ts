@@ -37,7 +37,7 @@ export function visualizationUrl(meta: Pick<VisualizationMeta, 'sessionId' | 'ar
 export function injectVisualizationBridge(html: string, artifactId: string): string {
   const script = `<script data-dsh-visualize-bridge>(()=>{\n`
     + `const source=${JSON.stringify(BRIDGE_SOURCE)};const artifactId=${JSON.stringify(artifactId)};\n`
-    + `let frame=0;const measure=()=>{frame=0;const d=document.documentElement,b=document.body;const height=Math.max(d?.scrollHeight||0,d?.offsetHeight||0,b?.scrollHeight||0,b?.offsetHeight||0);parent.postMessage({source,type:'resize',artifactId,height},'*')};\n`
+    + `let frame=0;const measure=()=>{frame=0;const d=document.documentElement,b=document.body;const height=Math.max(d?.offsetHeight||0,b?.scrollHeight||0,b?.offsetHeight||0,Math.ceil(b?.getBoundingClientRect().height||0));parent.postMessage({source,type:'resize',artifactId,height},'*')};\n`
     + `const schedule=()=>{if(frame===0)frame=requestAnimationFrame(measure)};\n`
     + `addEventListener('load',schedule);addEventListener('resize',schedule);\n`
     + `addEventListener('message',(event)=>{if(event.source!==parent||event.data?.source!==source||event.data?.type!=='theme')return;const theme=event.data.theme==='dark'?'dark':'light';document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;schedule()});\n`
@@ -62,4 +62,3 @@ export function parseVisualizationMeta(value: unknown): VisualizationMeta | unde
   }
   return meta as VisualizationMeta;
 }
-

@@ -34,14 +34,28 @@ const SKILL_CONTENT = `# DFY Visualize
 
 Use this Skill when an explanation benefits from an interactive chart, diagram, comparison, simulator, or UI mockup rendered directly in the conversation.
 
+## Host surface contract
+
+The artifact is embedded directly beneath an assistant response; it is not a standalone web page. Unless the user explicitly requests a card, poster, dashboard shell, or full-canvas background:
+
+- Keep \`html\` and \`body\` marginless and transparent. Do not use \`min-height: 100vh\` or page-level flex/grid centering merely to imitate a standalone page.
+- Keep the Host canvas itself transparent; do not paint a page-sized background behind the artifact.
+- Keep the top-level visualization surface transparent and unframed, and use the available conversation width. Organize structural groups and repeated content with layout, spacing, dividers, or visual marks instead of container chrome.
+- Use a card-like surface only for a necessary bounded interactive field or concise summary. Keep charts, maps, diagrams, tables, control groups, and the whole visualization unframed, and never nest cards.
+- Do not render a heading that repeats the Tool \`title\`, and do not add a viewer titlebar, status, reload, fullscreen, or theme toolbar. Start with the actual visualization or controls.
+- Backgrounds, borders, radii, and shadows remain appropriate for meaningful internal elements such as plot areas, nodes, swatches, inputs, and data cells.
+- Support the Host theme through \`:root[data-theme='dark']\` as well as the initial color scheme when theme-specific colors are needed.
+
 ## Required workflow
 
 1. Create a complete responsive HTML document in the current workspace. Keep CSS and JavaScript inline whenever practical.
 2. Do not use CDNs, remote scripts, remote fonts, network requests, forms, popups, or top-window navigation. The viewer intentionally blocks them.
 3. Make the page usable at narrow and wide widths. Avoid a fixed canvas width and avoid document-level scrolling when the content can size naturally.
-4. If the HTML needs local images, fonts, CSS, or JavaScript, reference each as \`assets/<basename>\` and pass every source file in \`asset_paths\`. Asset basenames must be unique.
-5. Call \`${TOOL_NAME}\` exactly once with the HTML \`file_path\`, a short \`title\`, and any \`asset_paths\`.
-6. After success, give only a concise explanation or usage hint. Do not paste the HTML into the conversation.
+4. Keep primary content that expands or collapses through interaction in normal document flow so the Host can measure its changing height. Do not give the document a fixed height, position primary layout content absolutely or fixed, or clip it with \`overflow: hidden\`; out-of-flow positioning remains appropriate for genuine overlays such as menus, tooltips, and dialogs.
+5. If the HTML needs local images, fonts, CSS, or JavaScript, reference each as \`assets/<basename>\` and pass every source file in \`asset_paths\`. Asset basenames must be unique.
+6. Before publishing, inspect the HTML against the Host surface contract. Remove page-sized decoration, unnecessary wrapper surfaces, nested cards, and repeated titles added by habit.
+7. Call \`${TOOL_NAME}\` exactly once with the HTML \`file_path\`, a short \`title\`, and any \`asset_paths\`.
+8. After success, give only a concise explanation or usage hint. The Harness UI displays the visualization after the final response; do not repeat it, embed it, call the render tool again, or paste the HTML into the conversation.
 
 The published artifact is immutable and belongs to the current session. Archiving keeps it; permanently deleting the session removes it together with the transcript.`;
 
@@ -201,7 +215,7 @@ function renderResult(value: VisualizationValue): string {
 function createVisualizationTool(ctx: Context, rememberedSessionDirs: Map<string, string>) {
   return defineTool({
     name: TOOL_NAME,
-    description: `Publish a workspace HTML document as a sandboxed interactive visualization in the current conversation. Read the ${SKILL_NAME} Skill before every call.`,
+    description: `Publish a workspace HTML document as a sandboxed interactive visualization in the current conversation. Read the ${SKILL_NAME} Skill before every call. Keep the top-level surface transparent and unframed, omit repeated title/header or viewer chrome, and reserve card surfaces for necessary bounded content.`,
     parameters: {
       file_path: {
         type: 'string',
@@ -432,4 +446,3 @@ export function apply(ctx: Context): void {
     disposeTool();
   });
 }
-

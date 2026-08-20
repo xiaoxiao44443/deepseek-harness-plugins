@@ -4,6 +4,8 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment';
 import type {} from '@deepseek-ai/dsh-fs';
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver';
+import type { ContentBlock } from '@deepseek-ai/dsh-llm';
+import type {} from '@deepseek-ai/dsh-session-persistence';
 import { settingsNamespace } from '@deepseek-ai/dsh-settings';
 import type {} from '@deepseek-ai/dsh-skill';
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -13,10 +15,18 @@ import type MediaBlocks from '@dfy-plugins/dsh-media-blocks';
 import {
   createOfficialImageBlock,
   decodeImageAttachmentRef,
+  decodeSessionImageRef,
   detectImageMediaType,
-  encodeImageAttachmentRef,
-  serializeImageAttachmentRef,
+  type SerializableImageAttachmentRef,
+  type SessionImageRef,
 } from '@dfy-plugins/image-protocol';
+import {
+  publishSessionImages,
+  readSessionImage,
+  type ResolveSessionDirectory,
+  type SessionImageOwner,
+} from '@dfy-plugins/image-protocol/session-storage';
+import { dirname, isAbsolute } from 'node:path';
 
 import {
   decodeImageBase64,
@@ -33,7 +43,7 @@ import {
 } from './logic.js';
 
 export const name = 'image-generation';
-export const inject = ['tools', 'attachments', 'credentials', 'fs', 'skills'];
+export const inject = ['tools', 'attachments', 'credentials', 'fs', 'skills', 'sessionPersistence'];
 
 export interface Config {
   enabled?: boolean;
@@ -82,7 +92,25 @@ interface InputImage {
 }
 
 interface ImagePresentationMeta {
-  images: GeneratedImageValue[];
+  images: unknown[];
+}
+
+interface LegacyGeneratedImageValue {
+  ref: string;
+  attachment: SerializableImageAttachmentRef;
+}
+
+interface SessionImageBlock {
+  type: 'dfy-session-image';
+  version: 1;
+  ref: string;
+  image: SessionImageRef;
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface ContentBlockMap {
+    'dfy-session-image': SessionImageBlock;
+  }
 }
 
 function resolveConfig(config: Config): ResolvedConfig {
@@ -134,8 +162,76 @@ async function readWorkspaceImage(ctx: Context, exec: ToolRunContext, requestedP
   return { data, mediaType, name: fileName(target.displayPath) };
 }
 
-async function readAttachmentImage(ctx: Context, exec: ToolRunContext, token: string): Promise<InputImage> {
-  const stored = await ctx.attachments.readImage(decodeImageAttachmentRef(token.trim()), exec.signal);
+function normalizeImageToken(token: string): string {
+  const trimmed = token.trim();
+  const quoted = /^(?:["']([A-Za-z0-9_-]+)["']|([A-Za-z0-9_-]+)["']|["']([A-Za-z0-9_-]+))$/.exec(trimmed);
+  return quoted?.[1] ?? quoted?.[2] ?? quoted?.[3] ?? trimmed;
+}
+
+function currentSessionOwner(
+  ctx: Context,
+  exec: ToolRunContext,
+  rememberedSessionDirs: Map<string, string>,
+): SessionImageOwner {
+  const agent = exec.agent;
+  if (agent === undefined) throw new Error('image generation requires an active DSH session');
+  const location = ctx.sessionPersistence.locate(agent.session.header);
+  if (location === undefined || !isAbsolute(location.path)) {
+    throw new Error('the configured session persistence backend does not expose a session-owned image directory');
+  }
+  const owner = { sessionId: String(agent.id), directory: dirname(location.path) };
+  rememberedSessionDirs.set(owner.sessionId, owner.directory);
+  return owner;
+}
+
+async function persistedSessionDirectory(
+  ctx: Context,
+  sessionId: string,
+  rememberedSessionDirs: Map<string, string>,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const remembered = rememberedSessionDirs.get(sessionId);
+  if (remembered !== undefined) return remembered;
+  const headers = await ctx.sessionPersistence.list(signal);
+  const header = headers.find((candidate) => String(candidate.id) === sessionId);
+  if (header === undefined) return undefined;
+  const location = ctx.sessionPersistence.locate(header);
+  if (location === undefined || !isAbsolute(location.path)) return undefined;
+  const directory = dirname(location.path);
+  rememberedSessionDirs.set(sessionId, directory);
+  return directory;
+}
+
+function sessionDirectoryResolver(
+  ctx: Context,
+  rememberedSessionDirs: Map<string, string>,
+): ResolveSessionDirectory {
+  return (sessionId, signal) => persistedSessionDirectory(ctx, sessionId, rememberedSessionDirs, signal);
+}
+
+async function readAttachmentImage(
+  ctx: Context,
+  exec: ToolRunContext,
+  token: string,
+  rememberedSessionDirs: Map<string, string>,
+): Promise<InputImage> {
+  const normalized = normalizeImageToken(token);
+  let sessionRef: SessionImageRef | undefined;
+  try { sessionRef = decodeSessionImageRef(normalized); } catch {}
+  if (sessionRef !== undefined) {
+    const stored = await readSessionImage(
+      sessionRef,
+      sessionDirectoryResolver(ctx, rememberedSessionDirs),
+      exec.signal,
+      ctx.attachments.imageLimits.maxImageBytes,
+    );
+    return {
+      data: stored.data,
+      mediaType: stored.ref.mediaType,
+      name: stored.ref.name ?? `generated-${stored.ref.imageId.slice(0, 8)}.${imageExtension(stored.ref.mediaType)}`,
+    };
+  }
+  const stored = await ctx.attachments.readImage(decodeImageAttachmentRef(normalized), exec.signal);
   return {
     data: stored.data,
     mediaType: stored.ref.mediaType,
@@ -148,12 +244,13 @@ async function resolveInputImages(
   exec: ToolRunContext,
   refs: readonly string[],
   paths: readonly string[],
+  rememberedSessionDirs: Map<string, string>,
 ): Promise<InputImage[]> {
   if (refs.length + paths.length > MAX_INPUT_IMAGES) {
     throw new Error(`at most ${String(MAX_INPUT_IMAGES)} input images are supported`);
   }
   const images = await Promise.all([
-    ...refs.map((ref) => readAttachmentImage(ctx, exec, ref)),
+    ...refs.map((ref) => readAttachmentImage(ctx, exec, ref, rememberedSessionDirs)),
     ...paths.map((path) => readWorkspaceImage(ctx, exec, path)),
   ]);
   const total = images.reduce((sum, image) => sum + image.data.byteLength, 0);
@@ -219,8 +316,12 @@ async function fetchOutputImage(urlValue: string, signal: AbortSignal, limit: nu
   return readLimitedResponse(response, limit);
 }
 
+function imageExtension(mediaType: ImageMediaType): string {
+  return mediaType === 'image/jpeg' ? 'jpg' : mediaType.split('/')[1]!;
+}
+
 function generatedName(base: string | undefined, index: number, mediaType: ImageMediaType): string {
-  const extension = mediaType === 'image/jpeg' ? 'jpg' : mediaType.split('/')[1];
+  const extension = imageExtension(mediaType);
   const cleaned = base?.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\.[A-Za-z0-9]+$/, '');
   const stem = cleaned === undefined || cleaned.length === 0
     ? `generated-${new Date().toISOString().replace(/[:.]/g, '-')}`
@@ -232,6 +333,7 @@ async function requestImages(
   ctx: Context,
   exec: ToolRunContext,
   config: ResolvedConfig,
+  rememberedSessionDirs: Map<string, string>,
   args: {
     prompt: string;
     inputImageRefs: readonly string[];
@@ -255,7 +357,13 @@ async function requestImages(
   }
   const credential = await ctx.credentials.resolve(IMAGE_API_KEY_REF);
   if (credential === undefined) throw new Error('图像生成 API Key 尚未配置');
-  const inputs = await resolveInputImages(ctx, exec, args.inputImageRefs, args.inputFilePaths);
+  const inputs = await resolveInputImages(
+    ctx,
+    exec,
+    args.inputImageRefs,
+    args.inputFilePaths,
+    rememberedSessionDirs,
+  );
   const operation: ImageOperation = inputs.length === 0 ? 'generate' : 'edit';
   let response: Response;
   if (operation === 'generate') {
@@ -311,19 +419,29 @@ async function requestImages(
     }
     return { data, mediaType };
   }));
-  const refs = await ctx.attachments.saveImages(outputData.map((image, index) => ({
+  const outputBytes = outputData.reduce((sum, image) => sum + image.data.byteLength, 0);
+  if (outputBytes > ctx.attachments.imageLimits.maxMessageImageBytes) {
+    throw new Error(`generated images exceed the ${String(ctx.attachments.imageLimits.maxMessageImageBytes)} byte limit`);
+  }
+  const sessionInputs = outputData.map((image, index) => ({
     data: image.data,
     mediaType: image.mediaType,
     name: generatedName(args.outputName, index, image.mediaType),
-  })));
+  }));
+  await Promise.all(sessionInputs.map((image) => ctx.attachments.validateImage(image)));
+  const refs = await publishSessionImages(
+    currentSessionOwner(ctx, exec, rememberedSessionDirs),
+    sessionInputs,
+    exec.signal,
+  );
   return {
     operation,
     model: config.model,
     quality,
     size,
-    images: refs.map((ref) => ({
-      ref: encodeImageAttachmentRef(ref),
-      attachment: serializeImageAttachmentRef(ref),
+    images: refs.map((stored) => ({
+      ref: stored.token,
+      image: stored.ref,
     })),
   };
 }
@@ -337,14 +455,43 @@ function isPresentationMeta(value: unknown): value is ImagePresentationMeta {
   return Array.isArray((value as { images?: unknown }).images);
 }
 
+function isSessionGeneratedImage(value: unknown): value is GeneratedImageValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const candidate = value as Partial<GeneratedImageValue>;
+  return typeof candidate.ref === 'string'
+    && typeof candidate.image === 'object'
+    && candidate.image !== null
+    && candidate.image.kind === 'dsh-session-image'
+    && candidate.image.version === 1;
+}
+
+function isLegacyGeneratedImage(value: unknown): value is LegacyGeneratedImageValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const candidate = value as Partial<LegacyGeneratedImageValue>;
+  return typeof candidate.ref === 'string'
+    && typeof candidate.attachment === 'object'
+    && candidate.attachment !== null;
+}
+
 function presentGeneratedImages(result: ToolResult) {
   if (result.isError || !isPresentationMeta(result.meta)) return undefined;
-  const content = result.meta.images.map((image) =>
-    createOfficialImageBlock(image.attachment as ImageAttachmentRef));
+  const content: ContentBlock[] = result.meta.images.flatMap((image) => {
+    if (isSessionGeneratedImage(image)) return [{
+        type: 'dfy-session-image',
+        version: 1,
+        ref: image.ref,
+        image: image.image,
+      } satisfies SessionImageBlock];
+    if (isLegacyGeneratedImage(image)) {
+      return [createOfficialImageBlock(image.attachment as ImageAttachmentRef)];
+    }
+    return [];
+  });
+  if (content.length === 0) return undefined;
   return { card: 'generic' as const, content };
 }
 
-function createImageTool(ctx: Context, current: () => Config) {
+function createImageTool(ctx: Context, current: () => Config, rememberedSessionDirs: Map<string, string>) {
   return defineTool({
     name: TOOL_NAME,
     description: 'Generate or edit images with the configured dedicated image route. Before every call, load the dfy-image-generation Skill and follow it.',
@@ -379,7 +526,7 @@ function createImageTool(ctx: Context, current: () => Config) {
       },
       output_name: {
         type: 'string',
-        description: 'Optional display filename stem for the generated attachment.',
+        description: 'Optional display filename stem for the generated session image.',
       },
     },
     output: {
@@ -399,12 +546,15 @@ function createImageTool(ctx: Context, current: () => Config) {
               additionalProperties: false,
               properties: {
                 ref: { type: 'string', required: true },
-                attachment: {
+                image: {
                   type: 'object',
                   required: true,
                   additionalProperties: false,
                   properties: {
-                    attachmentId: { type: 'string', required: true },
+                    kind: { type: 'string', required: true },
+                    version: { type: 'integer', required: true },
+                    sessionId: { type: 'string', required: true },
+                    imageId: { type: 'string', required: true },
                     mediaType: { type: 'string', required: true },
                     bytes: { type: 'integer', required: true },
                     width: { type: 'integer', required: true },
@@ -422,7 +572,7 @@ function createImageTool(ctx: Context, current: () => Config) {
     },
     timeoutMs: REQUEST_TIMEOUT_MS,
     isConcurrencySafe: () => false,
-    execute: async (args, exec) => requestImages(ctx, exec, resolveConfig(current()), {
+    execute: async (args, exec) => requestImages(ctx, exec, resolveConfig(current()), rememberedSessionDirs, {
       prompt: args.prompt,
       inputImageRefs: args.input_image_refs ?? [],
       inputFilePaths: args.input_file_paths ?? [],
@@ -474,6 +624,7 @@ async function readJsonBody(req: Parameters<WebRoute['handler']>[0], limit = 16_
 }
 
 export function apply(ctx: Context, entryConfig: Config): void {
+  const rememberedSessionDirs = new Map<string, string>();
   let source = () => entryConfig;
   let activation: Activation = { status: 'unconfigured' };
   let generation = 0;
@@ -492,7 +643,7 @@ export function apply(ctx: Context, entryConfig: Config): void {
     if (disposeTool !== undefined && disposeSkill !== undefined) return;
     clearFeatures();
     try {
-      disposeTool = ctx.tools.register(createImageTool(ctx, source));
+      disposeTool = ctx.tools.register(createImageTool(ctx, source, rememberedSessionDirs));
       disposeSkill = ctx.skills.register({
         name: SKILL_NAME,
         description: '先整理生图或图片编辑提示词，再通过独立图片模型生成结果。',
@@ -619,9 +770,24 @@ export function apply(ctx: Context, entryConfig: Config): void {
         try {
           const token = new URL(req.url ?? RESOURCE_API, 'http://localhost').searchParams.get('ref');
           if (token === null) throw new Error('缺少资源引用');
-          const stored = await ctx.attachments.readImage(decodeImageAttachmentRef(token));
+          const normalized = normalizeImageToken(token);
+          let sessionRef: SessionImageRef | undefined;
+          try { sessionRef = decodeSessionImageRef(normalized); } catch {}
+          let stored: { data: Uint8Array; mediaType: ImageMediaType };
+          if (sessionRef !== undefined) {
+            const sessionImage = await readSessionImage(
+              sessionRef,
+              sessionDirectoryResolver(ctx, rememberedSessionDirs),
+              new AbortController().signal,
+              ctx.attachments.imageLimits.maxImageBytes,
+            );
+            stored = { data: sessionImage.data, mediaType: sessionImage.ref.mediaType };
+          } else {
+            const attachment = await ctx.attachments.readImage(decodeImageAttachmentRef(normalized));
+            stored = { data: attachment.data, mediaType: attachment.ref.mediaType };
+          }
           res.writeHead(200, {
-            'content-type': stored.ref.mediaType,
+            'content-type': stored.mediaType,
             'content-length': stored.data.byteLength,
             'cache-control': 'private, max-age=31536000, immutable',
           });

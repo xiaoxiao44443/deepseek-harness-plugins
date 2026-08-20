@@ -1,4 +1,4 @@
-import type { ImageMediaType } from '@deepseek-ai/dsh-attachment';
+import type { SessionImageRef } from '@dfy-plugins/image-protocol';
 
 export const IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'] as const;
 export type ImageQuality = typeof IMAGE_QUALITIES[number];
@@ -13,14 +13,7 @@ export interface ImageApiItem {
 
 export interface GeneratedImageValue {
   ref: string;
-  attachment: {
-    attachmentId: string;
-    mediaType: ImageMediaType;
-    bytes: number;
-    width: number;
-    height: number;
-    name?: string;
-  };
+  image: SessionImageRef;
 }
 
 export interface ImageGenerationValue {
@@ -129,7 +122,7 @@ export function renderImageGenerationResult(value: ImageGenerationValue): string
   ];
   for (const image of value.images) {
     lines.push(
-      `  <generated_image image_ref="${escapeAttribute(image.ref)}" media_type="${image.attachment.mediaType}" width="${String(image.attachment.width)}" height="${String(image.attachment.height)}"${image.attachment.name === undefined ? '' : ` name="${escapeAttribute(image.attachment.name)}"`} />`,
+      `  <generated_image image_ref="${escapeAttribute(image.ref)}" media_type="${image.image.mediaType}" width="${String(image.image.width)}" height="${String(image.image.height)}"${image.image.name === undefined ? '' : ` name="${escapeAttribute(image.image.name)}"`} />`,
     );
   }
   lines.push('</image_generation_result>');
@@ -163,7 +156,7 @@ Normalize the request in this order when useful: intended use, primary request, 
 - \`prompt\` is required and should be a clean image brief, not conversational filler.
 - Omit \`quality\` and \`size\` to use the plugin defaults. Use \`low\` for drafts; use \`medium\`, \`high\`, or \`auto\` for final assets.
 - \`size\` may be \`auto\` or a valid \`WIDTHxHEIGHT\`. Useful values include \`1024x1024\`, \`1536x1024\`, \`1024x1536\`, \`2048x2048\`, \`2048x1152\`, \`3840x2160\`, and \`2160x3840\`.
-- Copy opaque attachment tokens unchanged into \`input_image_refs\`. Use \`input_file_paths\` only for images already in the session workspace.
+- Copy opaque uploaded-attachment or generated-session-image tokens unchanged into \`input_image_refs\`. Use \`input_file_paths\` only for images already in the session workspace.
 - Keep \`count\` at 1 unless the user asks for alternatives.
 
-The result contains durable \`image_ref\` values and the Harness UI displays the images. Report what was generated or changed; do not claim success before the tool returns.`;
+The result contains durable, session-owned \`image_ref\` values and the Harness UI displays the images after the final response. Copy those opaque tokens unchanged when editing a generated result again. After success, give only a concise explanation or usage hint. Do not repeat the image, embed it in Markdown, call the tool again, or claim success before the tool returns.`;

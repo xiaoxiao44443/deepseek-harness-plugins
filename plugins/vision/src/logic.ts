@@ -169,7 +169,7 @@ export const VISION_SKILL_CONTENT = `# Visual analysis
 
 Use \`dfy_vision_analyze\` when a task depends on pixels that are not already available as reliable text or DOM data.
 
-- A user prompt can contain one or more \`<vision_image>\` blocks with \`<image_ref>...<\/image_ref>\` values. These images are available even though the parent model receives no pixels. Copy every relevant token unchanged into one \`image_refs\` array and call the tool once. The singular \`image_ref\` remains available for one-image compatibility.
+- A user prompt or prior image-generation result can contain one or more \`<image_ref>...<\/image_ref>\` values. They may identify official uploaded attachments or session-owned generated images. Copy every relevant token unchanged into one \`image_refs\` array and call the tool once. The singular \`image_ref\` remains available for one-image compatibility.
 - Built-in browser screenshot results can contain opaque \`resourceRef\` values. Copy all relevant values unchanged into one \`resource_refs\` array; never reconstruct, shorten, rewrite, or replace them with local paths. These references resolve browser-registered PNG bytes directly: do not copy temporary screenshots into the workspace or request attachment persistence merely to analyze them. Only save or attach them when the user explicitly asks.
 - For images already present in the workspace, pass their paths together in \`file_paths\`. A batch may combine attachment, resource, and workspace sources up to the deployment image-count limit.
 - When the user's request depends on multiple images, include all of them in one call so the visual model can compare and reason across the batch. Do not make one call per image unless separate calls are explicitly required.

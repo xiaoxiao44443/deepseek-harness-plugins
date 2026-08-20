@@ -25,10 +25,17 @@ test('image generation keeps package, Cordis, API, settings, Tool and Skill ids 
   assert.match(host, /ctx\.credentials\.set\(IMAGE_API_KEY_REF, apiKey\.trim\(\)\)/);
   assert.match(host, /'\/api\/dsh-image-generation\/status'/);
   assert.match(host, /'\/api\/dsh-image-generation\/resource'/);
-  assert.match(host, /createOfficialImageBlock/);
+  assert.match(host, /'dfy-session-image'/);
+  assert.match(host, /publishSessionImages/);
+  assert.match(host, /sessionPersistence/);
+  assert.match(host, /ctx\.attachments\.validateImage\(image\)/);
+  assert.doesNotMatch(host, /ctx\.attachments\.saveImages\(/);
   assert.match(host, /'dfy_image_generate'/);
   assert.match(host, /'dfy-image-generation'/);
   assert.match(client, /DFY IMAGE GENERATE/);
+  assert.match(client, /dfy-session-image/);
+  assert.match(client, /data-dsh-image-output=\{images\.length === 0 \? undefined : ''\}/);
+  assert.match(client, /data-dsh-artifact-content="image"/);
   assert.match(client, /'\/api\/dsh-image-generation\/resource'/);
   assert.doesNotMatch(client, /dsh-media-blocks\/resource/);
   assert.match(client, /type="password"/);

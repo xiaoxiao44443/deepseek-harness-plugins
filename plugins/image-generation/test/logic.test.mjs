@@ -37,6 +37,8 @@ test('image API responses accept either base64 payloads or result URLs', () => {
 
 test('Skill requires loading before the stable custom tool and results retain image refs', () => {
   assert.match(IMAGE_GENERATION_SKILL_CONTENT, /before every call to `dfy_image_generate`/);
+  assert.match(IMAGE_GENERATION_SKILL_CONTENT, /displays the images after the final response/);
+  assert.match(IMAGE_GENERATION_SKILL_CONTENT, /Do not repeat the image/);
   const rendered = renderImageGenerationResult({
     operation: 'generate',
     model: 'gpt-image-2',
@@ -44,8 +46,11 @@ test('Skill requires loading before the stable custom tool and results retain im
     size: '1024x1024',
     images: [{
       ref: 'opaque-ref',
-      attachment: {
-        attachmentId: 'sha256:test',
+      image: {
+        kind: 'dsh-session-image',
+        version: 1,
+        sessionId: 'session-11111111-1111-4111-8111-111111111111',
+        imageId: 'a'.repeat(64),
         mediaType: 'image/png',
         bytes: 42,
         width: 1024,

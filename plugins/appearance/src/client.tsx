@@ -1,6 +1,5 @@
 /** @dfy-plugins/dsh-appearance Client half: settings page and completed-turn folding. */
 import React from 'react';
-import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client';
 
 import {
   DEFAULT_CHAT_FONT_SIZE,
@@ -36,10 +35,30 @@ interface SlotEntryOptions {
   order?: number;
   label?: string;
   priority?: number;
-  select?: (owner: TurnTailOwnerProps) => unknown | null;
+}
+
+interface DesktopContextMenuContext {
+  target: Element;
+}
+
+interface DesktopContextMenuService {
+  register(contribution: {
+    id: string;
+    label: string;
+    linkURL?: (context: DesktopContextMenuContext) => string;
+    icon?: 'external-link';
+    group?: string;
+    order?: number;
+    when(context: DesktopContextMenuContext): boolean;
+    enabled(context: DesktopContextMenuContext): boolean;
+    onSelect(context: DesktopContextMenuContext): void;
+  }): () => void;
 }
 
 interface ClientCtx {
+  desktopContextMenu?: DesktopContextMenuService;
+  get?(name: string): unknown;
+  inject(names: readonly string[], callback: (ctx: ClientCtx) => void): unknown;
   effect(setup: () => (() => void), label: string): unknown;
   slots: {
     inject(name: string, register: () => (() => void) | Iterable<() => void>): () => void;
@@ -50,10 +69,6 @@ interface ClientCtx {
   };
 }
 
-interface ProcessDisclosureProps extends TurnTailOwnerProps {
-  matched: { turnId: number };
-}
-
 export const name = 'appearance';
 export const inject = ['slots', 'settingsScope'];
 
@@ -62,7 +77,72 @@ const BODY_ATTRIBUTE = 'data-dsh-appearance';
 const SETTINGS_NAMESPACE = 'dsh-appearance';
 const MEDIA_CONTENT = 'img, video, audio';
 const IMAGE_PROCESS_CONTENT = 'img, [data-tool="dfy_vision_analyze"]';
+const ARTIFACT_OUTPUT = '[data-dsh-visualization-output], [data-dsh-image-output]';
+const ARTIFACT_CONTENT = '[data-dsh-artifact-content]';
 const TYPOGRAPHY_SAVE_DEBOUNCE_MS = 250;
+
+function fileLinkButton(target: Element): HTMLButtonElement | null {
+  const button = target.closest('button');
+  if (!(button instanceof HTMLButtonElement)) return null;
+  const label = button.getAttribute('aria-label') ?? '';
+  const text = button.textContent?.trim() ?? '';
+  if (button.closest('[data-produced-files-row="true"]') !== null) return button;
+  if (/^打开\s+/u.test(label)) return button;
+  return button.closest('[data-disclosure-row]') !== null && /\.[a-z0-9]{1,16}$/iu.test(text)
+    ? button
+    : null;
+}
+
+function normalizedFileIdentity(value: unknown): string {
+  return String(value ?? '').trim().replace(/^打开\s+/u, '').replaceAll('\\', '/').toLowerCase();
+}
+
+function visualizationLinkForFile(button: HTMLButtonElement | null): string {
+  if (button === null) return '';
+  const identity = normalizedFileIdentity(
+    button.getAttribute('title') ?? button.getAttribute('aria-label') ?? button.textContent,
+  );
+  const basename = identity.split('/').at(-1) ?? identity;
+  let scope = button.parentElement;
+  while (scope !== null) {
+    const candidates = [...scope.querySelectorAll<HTMLElement>('[data-dsh-artifact-url]')].flatMap((element) => {
+      const rawUrl = element.dataset.dshArtifactUrl ?? '';
+      let url: URL;
+      try {
+        url = new URL(rawUrl, document.baseURI);
+      } catch {
+        return [];
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return [];
+      const source = normalizedFileIdentity(element.dataset.dshSourceFile);
+      const sourceBasename = source.split('/').at(-1) ?? source;
+      return [{ url: url.href, matches: source.length > 0 && (source === identity || sourceBasename === basename) }];
+    });
+    const matches = candidates.filter((candidate) => candidate.matches);
+    if (matches.length === 1) return matches[0]!.url;
+    if (matches.length === 0 && candidates.length === 1) return candidates[0]!.url;
+    if (scope === document.body) break;
+    scope = scope.parentElement;
+  }
+  return '';
+}
+
+function installFileLinkContextMenu(ctx: ClientCtx): () => void {
+  const service = ctx.desktopContextMenu
+    ?? ctx.get?.('desktopContextMenu') as DesktopContextMenuService | undefined;
+  if (service === undefined || typeof service.register !== 'function') return () => {};
+  return service.register({
+    id: 'appearance.open-file',
+    label: '打开文件',
+    linkURL: (context) => visualizationLinkForFile(fileLinkButton(context.target)),
+    icon: 'external-link',
+    group: 'appearance-file-links',
+    order: 0,
+    when: (context) => fileLinkButton(context.target) !== null,
+    enabled: (context) => fileLinkButton(context.target)?.disabled !== true,
+    onSelect: (context) => { fileLinkButton(context.target)?.click(); },
+  });
+}
 
 const STYLES = `
 body[${BODY_ATTRIBUTE}] {
@@ -116,8 +196,17 @@ body[${BODY_ATTRIBUTE}] :is(
 [data-dsh-appearance-segment-think][data-dsh-appearance-collapsed='true'] {
   display: none !important;
 }
-.dsh-appearance-process-anchor { display: none; }
 .dsh-appearance-process-segment { min-width: 0; }
+.dsh-appearance-artifacts {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 0 4px;
+}
+.dsh-appearance-artifacts .dsh-imagegen-tool-gallery { width: min(560px, 100%); margin: 0; }
+.dsh-appearance-artifacts .dsh-visualize-panel { max-width: 100%; margin: 0; }
 .dsh-appearance-process-toggle {
   display: flex;
   width: fit-content;
@@ -222,9 +311,7 @@ function installPreferences(scope: SettingsScope<Partial<AppearanceSettings>>): 
   };
 }
 
-function flowRowsBefore(anchor: HTMLElement): HTMLElement[] {
-  const tail = anchor.closest<HTMLElement>('[data-chat-flow-kind="turn-tail"]');
-  if (tail === null) return [];
+function flowRowsBefore(tail: HTMLElement): HTMLElement[] {
   const rows: HTMLElement[] = [];
   let current = tail.previousElementSibling;
   while (current instanceof HTMLElement) {
@@ -245,15 +332,82 @@ function removeFlowMarkers(rows: readonly HTMLElement[]): void {
 }
 
 function flowNodeHasOutput(row: HTMLElement): boolean {
-  if (row.dataset.chatFlowKind === 'tool-call') {
-    return row.querySelector('[data-dsh-visualization-output]') !== null;
-  }
   if (row.dataset.chatFlowKind === 'assistant-step') {
     const copy = row.cloneNode(true) as HTMLElement;
     for (const reasoning of copy.querySelectorAll('[data-variant="think"]')) reasoning.remove();
     return (copy.textContent ?? '').trim().length > 0 || copy.querySelector(MEDIA_CONTENT) !== null;
   }
   return false;
+}
+
+function flowNodeHasArtifact(row: HTMLElement): boolean {
+  return row.dataset.chatFlowKind === 'tool-call'
+    && row.querySelector(ARTIFACT_OUTPUT) !== null;
+}
+
+interface ArtifactPromotion {
+  outputRow: HTMLElement;
+  artifactRows: readonly HTMLElement[];
+  host: HTMLElement;
+  dispose(): void;
+}
+
+function sameElements(left: readonly HTMLElement[], right: readonly HTMLElement[]): boolean {
+  return left.length === right.length && left.every((element, index) => element === right[index]);
+}
+
+function installArtifactPromotion(
+  turnId: number,
+  segmentId: number,
+  outputRow: HTMLElement,
+  artifactRows: readonly HTMLElement[],
+): ArtifactPromotion | undefined {
+  const contents = artifactRows.flatMap((row) => [...row.querySelectorAll<HTMLElement>(ARTIFACT_CONTENT)]);
+  if (contents.length === 0) return undefined;
+  const host = document.createElement('div');
+  host.className = 'dsh-appearance-artifacts';
+  host.dataset.dshAppearanceArtifacts = `${String(turnId)}:${String(segmentId)}`;
+  outputRow.after(host);
+  const moved = contents.map((content) => {
+    const placeholder = document.createComment('dsh-artifact-content');
+    content.before(placeholder);
+    host.append(content);
+    return { content, placeholder };
+  });
+  return {
+    outputRow,
+    artifactRows: [...artifactRows],
+    host,
+    dispose() {
+      for (const { content, placeholder } of moved) {
+        if (placeholder.isConnected) placeholder.before(content);
+        else content.remove();
+        placeholder.remove();
+      }
+      host.remove();
+    },
+  };
+}
+
+function reconcileArtifactPromotion(
+  promotions: Map<string, ArtifactPromotion>,
+  desired: Set<string>,
+  turnId: number,
+  segmentId: number,
+  outputRow: HTMLElement,
+  artifactRows: readonly HTMLElement[],
+): void {
+  const marker = `${String(turnId)}:${String(segmentId)}`;
+  desired.add(marker);
+  const current = promotions.get(marker);
+  if (current !== undefined
+    && current.host.isConnected
+    && current.outputRow === outputRow
+    && sameElements(current.artifactRows, artifactRows)) return;
+  current?.dispose();
+  const next = installArtifactPromotion(turnId, segmentId, outputRow, artifactRows);
+  if (next === undefined) promotions.delete(marker);
+  else promotions.set(marker, next);
 }
 
 function segmentSummary(
@@ -340,34 +494,97 @@ function installSegmentDisclosure(
   };
 }
 
-function ProcessDisclosure({ matched }: ProcessDisclosureProps): React.ReactElement {
-  const anchorRef = React.useRef<HTMLDivElement>(null);
-
-  React.useLayoutEffect(() => {
-    const anchor = anchorRef.current;
-    if (anchor === null) return undefined;
-    const rows = flowRowsBefore(anchor);
-    const nodes = rows.map((row) => ({
-      kind: row.dataset.chatFlowKind ?? '',
-      hasOutput: flowNodeHasOutput(row),
-    }));
-    const disposers = planCompletedProcessSegments(nodes).map((segment, segmentId) => {
-      const outputRow = rows[segment.outputIndex];
-      if (outputRow === undefined) return () => {};
-      const processRows = segment.collapseIndices.flatMap((index) => rows[index] === undefined ? [] : [rows[index]!]);
-      return installSegmentDisclosure(
-        matched.turnId,
+function installCompletedTurnLayout(
+  tail: HTMLElement,
+  turnId: number,
+  collapseProcess: boolean,
+  promotions: Map<string, ArtifactPromotion>,
+  desiredPromotions: Set<string>,
+): () => void {
+  const rows = flowRowsBefore(tail);
+  const nodes = rows.map((row) => ({
+    kind: row.dataset.chatFlowKind ?? '',
+    hasOutput: flowNodeHasOutput(row),
+    hasArtifact: flowNodeHasArtifact(row),
+  }));
+  const disposers = planCompletedProcessSegments(nodes).map((segment, segmentId) => {
+    const outputRow = rows[segment.outputIndex];
+    if (outputRow === undefined) return () => {};
+    const processRows = segment.collapseIndices.flatMap((index) => rows[index] === undefined ? [] : [rows[index]!]);
+    const artifactRows = segment.artifactIndices.flatMap((index) => rows[index] === undefined ? [] : [rows[index]!]);
+    reconcileArtifactPromotion(promotions, desiredPromotions, turnId, segmentId, outputRow, artifactRows);
+    const disposeDisclosure = collapseProcess
+      ? installSegmentDisclosure(
+        turnId,
         segmentId,
         outputRow,
         processRows,
         segment.toolCount,
         segment.contextCount,
-      );
-    });
-    return () => { for (const dispose of disposers.reverse()) dispose(); };
-  }, [matched.turnId]);
+      )
+      : () => {};
+    return disposeDisclosure;
+  });
+  return () => { for (const dispose of disposers.reverse()) dispose(); };
+}
 
-  return <div ref={anchorRef} className="dsh-appearance-process-anchor" aria-hidden />;
+function mutationAddsCompletedTurnOrArtifact(mutation: MutationRecord): boolean {
+  const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentElement;
+  if (target?.closest('[data-dsh-appearance-artifacts], [data-dsh-appearance-segment]') != null) return false;
+  const selector = '[data-chat-flow-kind="turn-tail"], [data-turn-tail], '
+    + ARTIFACT_OUTPUT + ', ' + ARTIFACT_CONTENT;
+  return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => node instanceof Element
+    && (node.matches(selector) || node.querySelector(selector) !== null));
+}
+
+function installCompletedTurnLayouts(scope: SettingsScope<Partial<AppearanceSettings>>): () => void {
+  let frame: number | undefined;
+  let disclosureDisposers: Array<() => void> = [];
+  const promotions = new Map<string, ArtifactPromotion>();
+  const observer = new MutationObserver((mutations) => {
+    if (!mutations.some(mutationAddsCompletedTurnOrArtifact)) return;
+    if (frame !== undefined) return;
+    frame = window.requestAnimationFrame(refresh);
+  });
+  const refresh = (): void => {
+    frame = undefined;
+    observer.disconnect();
+    for (const dispose of disclosureDisposers.reverse()) dispose();
+    disclosureDisposers = [];
+    const desiredPromotions = new Set<string>();
+    const collapseProcess = readSettings(scope).collapseCompletedProcess;
+    for (const marker of document.querySelectorAll<HTMLElement>('[data-turn-tail]')) {
+      const tail = marker.closest<HTMLElement>('[data-chat-flow-kind="turn-tail"]');
+      const turnId = Number(marker.dataset.turnTail);
+      if (tail === null || !Number.isSafeInteger(turnId)) continue;
+      disclosureDisposers.push(installCompletedTurnLayout(
+        tail,
+        turnId,
+        collapseProcess,
+        promotions,
+        desiredPromotions,
+      ));
+    }
+    for (const [marker, promotion] of promotions) {
+      if (desiredPromotions.has(marker)) continue;
+      promotion.dispose();
+      promotions.delete(marker);
+    }
+    observer.observe(document.body, { childList: true, subtree: true });
+  };
+  refresh();
+  const unsubscribe = scope.subscribe(() => {
+    if (frame === undefined) frame = window.requestAnimationFrame(refresh);
+  });
+
+  return () => {
+    unsubscribe();
+    observer.disconnect();
+    if (frame !== undefined) window.cancelAnimationFrame(frame);
+    for (const dispose of disclosureDisposers.reverse()) dispose();
+    for (const promotion of promotions.values()) promotion.dispose();
+    promotions.clear();
+  };
 }
 
 interface DebouncedSettingSave {
@@ -600,6 +817,10 @@ export function apply(ctx: ClientCtx): void {
   const scope = ctx.settingsScope.bind<Partial<AppearanceSettings>>({ namespace: SETTINGS_NAMESPACE });
   ctx.effect(installStyles, 'dsh-appearance: client styles');
   ctx.effect(() => installPreferences(scope), 'dsh-appearance: apply preferences');
+  ctx.effect(() => installCompletedTurnLayouts(scope), 'dsh-appearance: completed turn layouts');
+  ctx.inject(['desktopContextMenu'], (menuCtx) => {
+    menuCtx.effect(() => installFileLinkContextMenu(menuCtx), 'dsh-appearance: file link context menu');
+  });
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
@@ -608,28 +829,4 @@ export function apply(ctx: ClientCtx): void {
     label: '外观',
   }, () => <AppearancePage scope={scope} />));
 
-  ctx.slots.inject('conversation.chat.turnTail', () => {
-    let disposeEntry: (() => void) | undefined;
-    const sync = (): void => {
-      const enabled = readSettings(scope).collapseCompletedProcess;
-      if (enabled && disposeEntry === undefined) {
-        disposeEntry = ctx.slots.register({
-          name: 'conversation.chat.turnTail',
-          id: 'dsh-appearance-process',
-          priority: 100,
-          select: (owner) => owner.turn.status === 'closed' ? { turnId: owner.turn.turn } : null,
-        }, ProcessDisclosure);
-      } else if (!enabled && disposeEntry !== undefined) {
-        disposeEntry();
-        disposeEntry = undefined;
-      }
-    };
-    sync();
-    const unsubscribe = scope.subscribe(sync);
-    return () => {
-      unsubscribe();
-      disposeEntry?.();
-      disposeEntry = undefined;
-    };
-  });
 }

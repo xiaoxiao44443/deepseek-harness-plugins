@@ -25,6 +25,10 @@ test('vision separates runtime names from globally registered tool names', async
   assert.match(host, /presentResult:/);
   assert.match(host, /attachments\.map\(\(attachment\) => createOfficialImageBlock\(attachment\)\)/);
   assert.match(host, /ctx\.attachments\.readImage\(decodeImageRef\(token\)\)/);
+  assert.match(host, /decodeSessionImageRef/);
+  assert.match(host, /readSessionImage/);
+  assert.match(host, /sessionPersistence/);
+  assert.match(host, /const ref = await ctx\.attachments\.saveImage/);
   assert.match(host, /resource_ref/);
   assert.match(host, /image_refs: \{/);
   assert.match(host, /file_paths: \{/);

@@ -3,6 +3,7 @@ import React from 'react';
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client';
 import {
   IconChevronDownOutline14,
+  IconInspectOutline12,
   IconSparkle16,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives';
@@ -29,7 +30,7 @@ const TOOL_NAME = 'dfy_visualize_render';
 const STYLE_ID = '@dfy-plugins/dsh-visualize';
 const MESSAGE_SOURCE = 'dsh-visualize';
 const MIN_FRAME_HEIGHT = 180;
-const MAX_FRAME_HEIGHT = 720;
+const MAX_FRAME_HEIGHT = 4096;
 
 const STYLES = `
 .dsh-visualize-tool { display: flex; min-width: 0; width: 100%; flex-direction: column; }
@@ -48,19 +49,21 @@ button.dsh-visualize-inspect { cursor: pointer; }
 .dsh-visualize-chevron { flex: none; margin-left: 4px; color: var(--dsw-alias-label-tertiary); opacity: 0; transform: rotate(-90deg); transition: opacity .12s ease, transform .16s ease; }
 .dsh-visualize-toggle:hover .dsh-visualize-chevron { opacity: 1; }
 .dsh-visualize-toggle[aria-expanded='true'] .dsh-visualize-chevron { opacity: 1; transform: rotate(0); }
-.dsh-visualize-panel { position: relative; display: flex; min-width: 0; max-width: calc(100% - 22px); flex-direction: column; margin: 8px 0 8px 22px; overflow: hidden; border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.22)); border-radius: 14px; background: var(--dsw-alias-bg-layer-2, #fff); box-shadow: var(--dsw-shadow-lv1, 0 2px 8px rgba(0,0,0,.06)); }
-.dsh-visualize-panel[data-fullscreen='true'] { position: fixed; z-index: 10000; inset: 18px; max-width: none; margin: 0; border-radius: 16px; box-shadow: 0 18px 60px rgba(0,0,0,.34); }
-.dsh-visualize-toolbar { display: flex; min-height: 38px; flex: none; align-items: center; gap: 8px; padding: 0 8px 0 13px; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.18)); background: var(--dsw-alias-bg-layer-3, #fff); }
-.dsh-visualize-toolbar-title { min-width: 0; flex: 1; overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-visualize-toolbar-status { color: var(--dsw-alias-label-caption, rgba(127,127,127,.8)); font-size: 11px; line-height: 18px; }
-.dsh-visualize-action { min-height: 26px; appearance: none; padding: 2px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; font: inherit; font-size: 12px; line-height: 18px; }
-.dsh-visualize-action:hover { background: var(--dsw-alias-bg-module-platform, rgba(127,127,127,.1)); color: var(--dsw-alias-label-primary); }
-.dsh-visualize-action:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #298df8); outline-offset: -1px; }
-.dsh-visualize-frame { display: block; width: 100%; flex: none; border: 0; background: transparent; transition: height .16s ease; }
-.dsh-visualize-panel[data-fullscreen='true'] .dsh-visualize-frame { flex: 1; transition: none; }
+.dsh-visualize-details { display: flex; flex-direction: column; }
+.dsh-visualize-details[hidden], .dsh-visualize-panel[hidden] { display: none !important; }
+.dsh-visualize-io-card { display: flex; flex-direction: column; margin: 4px 0 4px 4px; overflow: hidden; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-markdown-code-block); font: var(--dsw-font-markdown-code-block-small); }
+.dsh-visualize-io-section { display: grid; max-height: 150px; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; column-gap: 14px; padding: 12px 16px; overflow: auto; }
+.dsh-visualize-io-label { position: sticky; top: 0; align-self: start; color: var(--dsw-alias-label-caption); }
+.dsh-visualize-io-text { min-width: 0; margin: 0; color: var(--dsw-alias-label-secondary); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.dsh-visualize-io-text[data-error] { color: var(--dsw-alias-state-error-primary); }
+.dsh-visualize-io-divider { height: 1px; flex: none; background: var(--dsw-alias-border-l2); }
+.dsh-visualize-inspect-action { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin: 4px 0 2px 4px; padding: 2px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; line-height: 16px; }
+.dsh-visualize-inspect-action:hover { background: var(--dsw-alias-interactive-bg-hover-solid); color: var(--dsw-alias-label-primary); }
+.dsh-visualize-panel { display: block; min-width: 0; max-width: calc(100% - 22px); margin: 8px 0 8px 22px; }
+.dsh-visualize-frame { display: block; width: 100%; flex: none; border: 0; background: transparent; }
 @keyframes dsh-visualize-sweep { 0% { left: -300px; } 90%, 100% { left: 100%; } }
-@media (max-width: 680px) { .dsh-visualize-panel { max-width: 100%; margin-left: 0; } .dsh-visualize-panel[data-fullscreen='true'] { inset: 8px; } .dsh-visualize-toolbar-status { display: none; } }
-@media (prefers-reduced-motion: reduce) { .dsh-visualize-tool[data-state='running'] .dsh-visualize-row::after { display: none; animation: none; } .dsh-visualize-chevron, .dsh-visualize-frame { transition: none; } }
+@media (max-width: 680px) { .dsh-visualize-panel { max-width: 100%; margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .dsh-visualize-tool[data-state='running'] .dsh-visualize-row::after { display: none; animation: none; } .dsh-visualize-chevron { transition: none; } }
 `;
 
 function installStyles(): () => void {
@@ -102,6 +105,28 @@ function requestedTitle(block: ToolCallViewProps['block']): string | undefined {
   }
 }
 
+function requestedFilePath(block: ToolCallViewProps['block']): string | undefined {
+  const raw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '';
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+    const filePath = (value as { file_path?: unknown }).file_path;
+    return typeof filePath === 'string' && filePath.trim().length > 0 ? filePath.trim().slice(0, 1_000) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function toolInput(block: ToolCallViewProps['block']): string | null {
+  const raw = (('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '').trim();
+  if (raw.length === 0) return null;
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
 function currentTheme(): 'light' | 'dark' {
   const root = document.documentElement;
   const declared = root.dataset.theme ?? root.getAttribute('data-color-scheme');
@@ -110,13 +135,20 @@ function currentTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-function VisualizationFrame({ meta }: { meta: VisualizationMeta }): React.ReactElement {
+function VisualizationFrame({
+  meta,
+  sourceFile,
+  visible,
+}: {
+  meta: VisualizationMeta;
+  sourceFile?: string;
+  visible: boolean;
+}): React.ReactElement {
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = React.useState(360);
-  const [loaded, setLoaded] = React.useState(false);
-  const [reload, setReload] = React.useState(0);
-  const [fullscreen, setFullscreen] = React.useState(false);
-  const src = `${visualizationUrl(meta)}?v=${String(reload)}`;
+  const [height, setHeight] = React.useState(MIN_FRAME_HEIGHT);
+  const [measured, setMeasured] = React.useState(false);
+  const [scrollable, setScrollable] = React.useState(false);
+  const src = visualizationUrl(meta);
 
   const sendTheme = React.useCallback((): void => {
     iframeRef.current?.contentWindow?.postMessage({ source: MESSAGE_SOURCE, type: 'theme', theme: currentTheme() }, '*');
@@ -129,7 +161,12 @@ function VisualizationFrame({ meta }: { meta: VisualizationMeta }): React.ReactE
       const value = event.data as { source?: unknown; type?: unknown; artifactId?: unknown; height?: unknown } | null;
       if (value?.source !== MESSAGE_SOURCE || value.type !== 'resize' || value.artifactId !== meta.artifactId) return;
       if (typeof value.height !== 'number' || !Number.isFinite(value.height)) return;
-      setHeight(Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.ceil(value.height))));
+      const measuredHeight = Math.ceil(value.height);
+      const nextHeight = Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, measuredHeight));
+      const nextScrollable = measuredHeight > MAX_FRAME_HEIGHT;
+      setHeight(nextHeight);
+      setScrollable(nextScrollable);
+      setMeasured(true);
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
@@ -147,43 +184,28 @@ function VisualizationFrame({ meta }: { meta: VisualizationMeta }): React.ReactE
     };
   }, [sendTheme]);
 
-  React.useEffect(() => {
-    if (!fullscreen) return undefined;
-    const close = (event: KeyboardEvent): void => { if (event.key === 'Escape') setFullscreen(false); };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [fullscreen]);
-
   return (
-    <div className="dsh-visualize-panel" data-fullscreen={String(fullscreen)}>
-      <div className="dsh-visualize-toolbar">
-        <span className="dsh-visualize-toolbar-title">{meta.title}</span>
-        <span className="dsh-visualize-toolbar-status">{loaded ? '已加载' : '加载中…'}</span>
-        <button
-          type="button"
-          className="dsh-visualize-action"
-          onClick={() => {
-            setLoaded(false);
-            setReload((value) => value + 1);
-          }}
-        >
-          重新加载
-        </button>
-        <button type="button" className="dsh-visualize-action" onClick={() => setFullscreen((value) => !value)}>
-          {fullscreen ? '退出全屏' : '全屏'}
-        </button>
-      </div>
+    <div
+      className="dsh-visualize-panel"
+      data-dsh-artifact-content="visualization"
+      data-dsh-artifact-url={src}
+      data-dsh-source-file={sourceFile}
+      hidden={!visible}
+    >
       <iframe
-        key={reload}
         ref={iframeRef}
         className="dsh-visualize-frame"
         src={src}
         title={meta.title}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        style={{ height: fullscreen ? 'calc(100vh - 76px)' : `${String(height)}px` }}
+        scrolling={scrollable ? 'auto' : 'no'}
+        style={{
+          height: `${String(height)}px`,
+          opacity: measured ? 1 : 0,
+          pointerEvents: measured ? 'auto' : 'none',
+        }}
         onLoad={() => {
-          setLoaded(true);
           sendTheme();
         }}
       />
@@ -197,6 +219,8 @@ function VisualizationToolRow({ block, inspect }: ToolCallViewProps): React.Reac
   const state = !settled ? 'running' : stopped ? 'stopped' : block.isError ? 'error' : 'ok';
   const meta = settled && !block.isError ? parseVisualizationMeta(block.meta) : undefined;
   const pendingTitle = requestedTitle(block);
+  const sourceFile = requestedFilePath(block);
+  const input = toolInput(block);
   const output = resultText(block);
   const summary = state === 'running'
     ? pendingTitle === undefined ? '正在创建可视化' : `正在创建：${pendingTitle}`
@@ -207,6 +231,8 @@ function VisualizationToolRow({ block, inspect }: ToolCallViewProps): React.Reac
         : meta === undefined ? '已创建可视化' : `已创建：${meta.title}`;
   const artifactKey = meta === undefined ? undefined : `${meta.sessionId}:${meta.artifactId}`;
   const [open, setOpen] = React.useState(meta !== undefined);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const detailsExpandable = input !== null || output !== null;
   const currentArtifact = React.useRef<string | undefined>(artifactKey);
   React.useEffect(() => {
     if (artifactKey === undefined || artifactKey === currentArtifact.current) return;
@@ -231,10 +257,18 @@ function VisualizationToolRow({ block, inspect }: ToolCallViewProps): React.Reac
       data-dsh-visualization-output={meta === undefined ? undefined : ''}
     >
       <div className="dsh-visualize-row">
-        {inspect === undefined ? (
+        {!detailsExpandable ? (
           <span className="dsh-visualize-inspect">{heading}</span>
         ) : (
-          <button type="button" className="dsh-visualize-inspect" aria-label="查看可视化工具详情" onClick={inspect}>{heading}</button>
+          <button
+            type="button"
+            className="dsh-visualize-inspect"
+            aria-label={`DFY VISUALIZE，${detailsOpen ? '收起参数' : '展开参数'}`}
+            aria-expanded={detailsOpen}
+            onClick={() => setDetailsOpen((value) => !value)}
+          >
+            {heading}
+          </button>
         )}
         <span className="dsh-visualize-separator" aria-hidden />
         {meta === undefined ? (
@@ -252,7 +286,29 @@ function VisualizationToolRow({ block, inspect }: ToolCallViewProps): React.Reac
           </button>
         )}
       </div>
-      {open && meta !== undefined ? <VisualizationFrame meta={meta} /> : null}
+      <div className="dsh-visualize-details" hidden={!detailsOpen}>
+          <div className="dsh-visualize-io-card">
+            {input === null ? null : (
+              <div className="dsh-visualize-io-section">
+                <span className="dsh-visualize-io-label">IN</span>
+                <pre className="dsh-visualize-io-text">{input}</pre>
+              </div>
+            )}
+            {input === null || output === null ? null : <span className="dsh-visualize-io-divider" aria-hidden />}
+            {output === null ? null : (
+              <div className="dsh-visualize-io-section">
+                <span className="dsh-visualize-io-label">OUT</span>
+                <pre className="dsh-visualize-io-text" data-error={state === 'error' || undefined}>{output}</pre>
+              </div>
+            )}
+          </div>
+          {inspect === undefined ? null : (
+            <button type="button" className="dsh-visualize-inspect-action" onClick={inspect}>
+              <IconInspectOutline12 /> Inspect
+            </button>
+          )}
+      </div>
+      {meta !== undefined ? <VisualizationFrame key={artifactKey} meta={meta} sourceFile={sourceFile} visible={open} /> : null}
     </div>
   );
 }
@@ -264,4 +320,3 @@ export function apply(ctx: ClientCtx): void {
     key: TOOL_NAME,
   }, VisualizationToolRow));
 }
-

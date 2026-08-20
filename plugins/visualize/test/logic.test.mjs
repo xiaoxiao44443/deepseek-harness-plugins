@@ -33,6 +33,9 @@ test('visualization bridge is inserted before body close and reports only its ar
   assert.match(rendered, new RegExp(`${id}.*<\\/script><\\/body>`, 's'));
   assert.match(rendered, /ResizeObserver/);
   assert.match(rendered, /parent\.postMessage/);
+  assert.doesNotMatch(rendered, /d\?\.scrollHeight/);
+  assert.match(rendered, /b\?\.scrollHeight/);
+  assert.match(rendered, /getBoundingClientRect/);
 });
 
 test('titles and asset basenames are bounded without permitting traversal', () => {
@@ -42,4 +45,3 @@ test('titles and asset basenames are bounded without permitting traversal', () =
   assert.throws(() => validateAssetName('../x.png'));
   assert.throws(() => validateAssetName('..'));
 });
-

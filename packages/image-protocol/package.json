@@ -10,6 +10,10 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./session-storage": {
+      "types": "./lib/session-storage.d.ts",
+      "default": "./lib/session-storage.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const pluginRoot = new URL('../', import.meta.url);
 
-test('appearance registers durable settings, a sidebar page, and a turn-tail disclosure', async () => {
+test('appearance registers durable settings, a sidebar page, and completed-turn layouts', async () => {
   const [pkg, patch, host, client] = await Promise.all([
     readFile(new URL('package.json', pluginRoot), 'utf8'),
     readFile(new URL('cordis.patch.yml', pluginRoot), 'utf8'),
@@ -17,7 +17,10 @@ test('appearance registers durable settings, a sidebar page, and a turn-tail dis
   assert.match(client, /name: 'settings\.section'/);
   assert.match(client, /id: 'appearance'/);
   assert.match(client, /label: '外观'/);
-  assert.match(client, /conversation\.chat\.turnTail/);
+  assert.match(client, /installCompletedTurnLayouts/);
+  assert.match(client, /\[data-turn-tail\]/);
+  assert.match(client, /MutationObserver/);
+  assert.doesNotMatch(client, /slots\.inject\('conversation\.chat\.turnTail'/);
   assert.match(client, /data-chat-flow-kind/);
   assert.match(client, /data-dsh-appearance-process/);
   assert.match(client, /planCompletedProcessSegments/);
@@ -57,4 +60,21 @@ test('appearance registers durable settings, a sidebar page, and a turn-tail dis
   assert.match(client, /\.dsh-appearance-reset \{ margin-top: 16px; \}/);
   assert.match(client, /className="dsh-appearance-process-toggle dsh-appearance-reset"/);
   assert.match(client, /\[data-tool="dfy_vision_analyze"\]/);
+  assert.match(client, /\[data-dsh-visualization-output\], \[data-dsh-image-output\]/);
+  assert.match(client, /const ARTIFACT_CONTENT = '\[data-dsh-artifact-content\]'/);
+  assert.match(client, /installArtifactPromotion/);
+  assert.match(client, /const promotions = new Map<string, ArtifactPromotion>\(\)/);
+  assert.match(client, /current\.host\.isConnected/);
+  assert.match(client, /sameElements\(current\.artifactRows, artifactRows\)\) return/);
+  assert.match(client, /if \(desiredPromotions\.has\(marker\)\) continue/);
+  assert.match(client, /outputRow\.after\(host\)/);
+  assert.match(client, /artifactIndices/);
+  assert.match(client, /collapseProcess/);
+  assert.match(client, /ctx\.get\?\.\('desktopContextMenu'\)/);
+  assert.match(client, /ctx\.inject\(\['desktopContextMenu'\]/);
+  assert.match(client, /id: 'appearance\.open-file'/);
+  assert.match(client, /label: '打开文件'/);
+  assert.match(client, /linkURL: \(context\) => visualizationLinkForFile/);
+  assert.match(client, /data-produced-files-row/);
+  assert.match(client, /data-dsh-artifact-url/);
 });

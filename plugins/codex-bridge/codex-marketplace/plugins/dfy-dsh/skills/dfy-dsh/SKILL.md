@@ -11,6 +11,15 @@ Harness tool names are exposed unchanged through the normal MCP tool list. Prefe
 
 Pass `sessionId` when the user refers to a specific active Harness conversation or when a multi-step tool workflow must stay bound to one conversation. Otherwise allow the bridge to select the most recently active Harness agent. `dsh_call_tool` still executes inside the selected Harness session and preserves its permission prompts and tool policies.
 
+To control or test the DFY DSH Desktop built-in browser directly from Codex:
+
+1. Call `dsh_list_tools` and find `browser_execute`. Do this even when `browser_execute` is absent from Codex's current dynamic MCP catalog; discovery through `dsh_list_tools` is the supported fallback. Omit `sessionId` unless the user refers to a specific Harness conversation or the workflow must remain bound to one session. In those cases, call `dsh_list_sessions` first and reuse the selected `sessionId`.
+2. Call `dsh_list_skills`, then `dsh_read_skill` for `desktop-browser` before the first browser action.
+3. On the first `browser_execute` call in the workflow, use `dsh_call_tool` with the exact returned tool name and run `return await browser.documentation()` as required by the browser skill.
+4. Use later `dsh_call_tool` calls with the same session selection to inspect or operate the browser, and close temporary tabs in `finally`-style cleanup.
+
+This is direct tool execution inside the selected Harness session. Do not substitute `dsh_send_message` or ask the Harness agent to drive its own UI unless the user explicitly asks the Harness agent to perform the work.
+
 To ask a Harness agent to do work without driving its UI:
 
 1. Call `dsh_send_message` with the target `sessionId`, `mode: "queue"` for a separate follow-up turn or `mode: "steer"` only when the user intends to affect the nearest step boundary. Include a stable `clientRequestId` for every logical submission so a transport retry cannot duplicate it.

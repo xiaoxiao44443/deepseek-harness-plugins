@@ -3,10 +3,13 @@ import test from 'node:test';
 
 import {
   createOfficialImageBlock,
+  decodeSessionImageRef,
   decodeImageAttachmentRef,
   detectImageMediaType,
   encodeImageAttachmentRef,
+  encodeSessionImageRef,
   imageMediaTypeForPath,
+  inspectImageDimensions,
   renderImageTextFallback,
   serializeImageAttachmentRef,
 } from '../lib/index.js';
@@ -32,6 +35,27 @@ test('image formats are detected from bytes and paths', () => {
   assert.equal(detectImageMediaType(Uint8Array.from([0xff, 0xd8, 0xff])), 'image/jpeg');
   assert.equal(imageMediaTypeForPath('/tmp/a.PNG'), 'image/png');
   assert.equal(imageMediaTypeForPath('/tmp/a.svg'), undefined);
+});
+
+test('session image references retain ownership and intrinsic metadata', () => {
+  const ref = {
+    kind: 'dsh-session-image',
+    version: 1,
+    sessionId: 'session-11111111-1111-4111-8111-111111111111',
+    imageId: 'b'.repeat(64),
+    mediaType: 'image/png',
+    bytes: 68,
+    width: 1,
+    height: 1,
+    name: '生成结果.png',
+  };
+  assert.deepEqual(decodeSessionImageRef(encodeSessionImageRef(ref)), ref);
+  assert.throws(() => decodeSessionImageRef(encodeImageAttachmentRef(attachment)), /session image reference is invalid/);
+});
+
+test('intrinsic dimensions are read without publishing an attachment', () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  assert.deepEqual(inspectImageDimensions(png), { width: 1, height: 1 });
 });
 
 test('official blocks and text fallback share normalized attachment metadata', () => {
