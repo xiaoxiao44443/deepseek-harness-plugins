@@ -1,9 +1,9 @@
 /** @dfy-plugins/dsh-vision Client half: visual-route settings and Tool presentation. */
 import React from 'react';
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment';
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client';
 import {
   IconChevronDownOutline14,
-  IconInspectOutline12,
   IconSparkle16,
   Menu,
   StateDot,
@@ -87,10 +87,16 @@ interface Draft {
   maxTokens: number;
 }
 
+interface ImageBlock {
+  type: 'image';
+  attachment: ImageAttachmentRef;
+}
+
 export const name = 'vision';
 export const inject = ['slots', 'settingsScope'];
 
 const API_PATH = '/api/dsh-vision/routes';
+const RESOURCE_API_PATH = '/api/dsh-vision/resource';
 
 const STYLES = `
 .dsh-vision-card { overflow: hidden; list-style: none; border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.22)); border-radius: 12px; background: var(--dsw-alias-bg-layer-3, rgba(255,255,255,.92)); color: var(--dsw-alias-label-primary, inherit); transition: border-color .16s, background .16s; }
@@ -149,22 +155,37 @@ const STYLES = `
 .dsh-vision-draft-rail[data-uploading] { opacity: .72; }
 .dsh-vision-tool-card { display: flex; flex-direction: column; }
 .dsh-vision-tool-row { position: relative; display: flex; min-width: 0; height: 24px; align-items: center; overflow: hidden; }
-.dsh-vision-tool-row[data-expandable] { cursor: pointer; }
+.dsh-vision-tool-inspect-target { display: inline-flex; min-width: 0; height: 24px; appearance: none; align-items: center; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+button.dsh-vision-tool-inspect-target { cursor: pointer; }
+.dsh-vision-tool-summary-toggle { display: flex; min-width: 0; max-width: 100%; height: 24px; flex: 0 1 auto; appearance: none; align-items: center; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.dsh-vision-tool-summary-toggle:hover .dsh-vision-tool-summary { color: var(--dsw-alias-label-primary); }
+.dsh-vision-tool-inspect-target:focus-visible, .dsh-vision-tool-summary-toggle:focus-visible { border-radius: 4px; outline: 2px solid var(--dsw-alias-brand-primary, #298df8); outline-offset: -1px; }
 .dsh-vision-tool-card[data-state='running'] .dsh-vision-tool-row::after { position: absolute; inset: 0 auto 0 0; width: 300px; animation: dsh-vision-tool-sweep 2.6s ease-out infinite; background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%); content: ''; pointer-events: none; }
 .dsh-vision-tool-leading { display: inline-flex; width: 16px; height: 16px; flex: none; align-items: center; justify-content: center; margin-right: 6px; color: var(--dsw-alias-label-tertiary); }
 .dsh-vision-tool-title { flex: none; color: var(--dsw-alias-label-secondary); font-size: 14px; line-height: 24px; }
 .dsh-vision-tool-separator { width: 2px; height: 2px; flex: none; margin: 0 8px; border-radius: 1px; background: var(--dsw-alias-label-caption); }
-.dsh-vision-tool-summary { min-width: 0; flex: auto; overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 14px; line-height: 24px; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-vision-tool-summary { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 14px; line-height: 24px; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-vision-tool-summary[data-error] { color: var(--dsw-alias-state-error-primary); }
-.dsh-vision-tool-body { display: flex; flex-direction: column; }
-.dsh-vision-tool-output { max-height: 260px; margin: 4px 0 4px 4px; overflow: auto; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-markdown-code-block); color: var(--dsw-alias-label-secondary); white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px 12px; font: var(--dsw-font-markdown-code-block-small); }
-.dsh-vision-tool-output[data-error] { color: var(--dsw-alias-state-error-primary); }
-.dsh-vision-tool-inspect { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin: 4px 0 2px 4px; padding: 2px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; line-height: 16px; }
-.dsh-vision-tool-inspect:hover { background: var(--dsw-alias-interactive-bg-hover-solid); color: var(--dsw-alias-label-primary); }
+.dsh-vision-tool-chevron { flex: none; margin-left: 4px; color: var(--dsw-alias-label-tertiary); opacity: 0; transform: rotate(-90deg); transition: opacity .12s ease, transform .16s ease; }
+.dsh-vision-tool-summary-toggle:hover .dsh-vision-tool-chevron { opacity: 1; }
+.dsh-vision-tool-summary-toggle[aria-expanded='true'] .dsh-vision-tool-chevron { opacity: 1; transform: rotate(0); }
+.dsh-vision-tool-io-card { display: flex; flex-direction: column; margin: 4px 0 4px 4px; overflow: hidden; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-markdown-code-block); font: var(--dsw-font-markdown-code-block-small); }
+.dsh-vision-tool-io-section { display: grid; max-height: 180px; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; column-gap: 14px; padding: 12px 16px; overflow: auto; }
+.dsh-vision-tool-io-label { position: sticky; top: 0; align-self: start; color: var(--dsw-alias-label-caption); }
+.dsh-vision-tool-io-text { min-width: 0; margin: 0; color: var(--dsw-alias-label-secondary); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.dsh-vision-tool-io-text[data-error] { color: var(--dsw-alias-state-error-primary); }
+.dsh-vision-tool-io-divider { height: 1px; flex: none; background: var(--dsw-alias-border-l2); }
+.dsh-vision-tool-preview { display: flex; width: min(320px, calc(100% - 22px)); height: 200px; align-items: center; justify-content: center; margin: 8px 0 4px 22px; padding: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2-darkmode-thin, rgba(127,127,127,.2)); border-radius: 14px; background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.08)); color: var(--dsw-alias-label-tertiary); cursor: zoom-in; font: inherit; font-size: 12px; }
+.dsh-vision-tool-preview:disabled { cursor: default; }
+.dsh-vision-tool-preview:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #298df8); outline-offset: 2px; }
+.dsh-vision-tool-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.dsh-vision-lightbox { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 32px; background: rgba(0,0,0,.78); cursor: zoom-out; }
+.dsh-vision-lightbox img { max-width: calc(100vw - 64px); max-height: calc(100vh - 64px); object-fit: contain; cursor: default; }
+.dsh-vision-lightbox-close { position: fixed; top: 20px; right: 20px; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; cursor: pointer; font-size: 24px; line-height: 1; }
 @keyframes dsh-vision-spin { to { transform: rotate(360deg); } }
 @keyframes dsh-vision-tool-sweep { 0% { left: -300px; } 90%, 100% { left: 100%; } }
 @media (max-width: 680px) { .dsh-vision-badge { display: none; } }
-@media (prefers-reduced-motion: reduce) { .dsh-vision-tool-card[data-state='running'] .dsh-vision-tool-row::after { display: none; animation: none; } }
+@media (prefers-reduced-motion: reduce) { .dsh-vision-tool-card[data-state='running'] .dsh-vision-tool-row::after { display: none; animation: none; } .dsh-vision-tool-chevron { transition: none; } }
 `;
 
 const STYLE_ID = '@dfy-plugins/dsh-vision';
@@ -184,9 +205,107 @@ function firstLine(value: string): string {
   return newline === -1 ? value : value.slice(0, newline);
 }
 
+const resourceUrls = new Map<string, Promise<string>>();
+
+function encodeImageRef(ref: ImageAttachmentRef): string {
+  const value = JSON.stringify({
+    attachmentId: String(ref.attachmentId),
+    mediaType: ref.mediaType,
+    bytes: ref.bytes,
+    width: ref.width,
+    height: ref.height,
+    ...(ref.name === undefined ? {} : { name: ref.name }),
+  });
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+function loadReferencedImage(attachment: ImageAttachmentRef): Promise<string> {
+  const ref = encodeImageRef(attachment);
+  const cached = resourceUrls.get(ref);
+  if (cached !== undefined) return cached;
+  const pending = fetch(`${RESOURCE_API_PATH}?ref=${encodeURIComponent(ref)}`, { cache: 'force-cache' })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
+      return URL.createObjectURL(await response.blob());
+    });
+  resourceUrls.set(ref, pending);
+  void pending.catch(() => resourceUrls.delete(ref));
+  return pending;
+}
+
+function isImageBlock(value: unknown): value is ImageBlock {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const block = value as Partial<ImageBlock>;
+  return block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null;
+}
+
+function resultImage(block: ToolCallViewProps['block']): ImageAttachmentRef | undefined {
+  if (!('kind' in block) || block.resultView?.card !== 'generic') return undefined;
+  return block.resultView.content?.find(isImageBlock)?.attachment;
+}
+
+function VisionImagePreview({ attachment }: { attachment: ImageAttachmentRef }): React.ReactElement {
+  const [attempt, setAttempt] = React.useState(0);
+  const [state, setState] = React.useState<{ url?: string; failed?: boolean }>({});
+  const [lightboxOpen, setLightboxOpen] = React.useState(false);
+  const alt = attachment.name ?? '视觉分析所查看的图片';
+  React.useEffect(() => {
+    let active = true;
+    setState({});
+    void loadReferencedImage(attachment).then(
+      (url) => { if (active) setState({ url }); },
+      () => { if (active) setState({ failed: true }); },
+    );
+    return () => { active = false; };
+  }, [attachment, attempt]);
+  React.useEffect(() => {
+    if (!lightboxOpen) return undefined;
+    const close = (event: KeyboardEvent): void => { if (event.key === 'Escape') setLightboxOpen(false); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [lightboxOpen]);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="dsh-vision-tool-preview"
+        aria-label={state.failed === true ? '图片加载失败，点击重试' : `${alt}，点击查看原图`}
+        title={state.failed === true ? '图片加载失败，点击重试' : '查看原图'}
+        disabled={state.url === undefined && state.failed !== true}
+        onClick={() => {
+          if (state.failed === true) setAttempt((value) => value + 1);
+          else if (state.url !== undefined) setLightboxOpen(true);
+        }}
+      >
+        {state.failed === true
+          ? '图片加载失败，点击重试'
+          : state.url === undefined
+            ? '正在加载图片…'
+            : <img src={state.url} alt={alt} />}
+      </button>
+      {lightboxOpen && state.url !== undefined ? (
+        <div className="dsh-vision-lightbox" role="dialog" aria-modal="true" aria-label="截图预览" onClick={() => setLightboxOpen(false)}>
+          <button type="button" className="dsh-vision-lightbox-close" aria-label="关闭预览" onClick={() => setLightboxOpen(false)}>×</button>
+          <img src={state.url} alt={alt} onClick={(event) => event.stopPropagation()} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function toolOutput(block: ToolCallViewProps['block']): string | null {
   if (!('kind' in block)) return null;
-  const parts = block.content.map((item) => item.type === 'text' ? item.text : JSON.stringify(item, null, 2));
+  const parts = block.content.map((item: unknown) => {
+    if (typeof item === 'object' && item !== null && (item as { type?: unknown }).type === 'text') {
+      const text = (item as { text?: unknown }).text;
+      return typeof text === 'string' ? text : '';
+    }
+    return JSON.stringify(item, null, 2);
+  });
   if (parts.length === 0 && block.error !== undefined) parts.push(`${block.error.name}: ${block.error.code}`);
   return parts.join('\n') || null;
 }
@@ -203,48 +322,101 @@ function visionQuestion(block: ToolCallViewProps['block']): string {
   return '分析图片';
 }
 
-function VisionToolRow({ block, inspect }: ToolCallViewProps): React.ReactElement {
+function toolInput(block: ToolCallViewProps['block']): string | null {
+  const raw = (('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '').trim();
+  if (raw.length === 0) return null;
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+function VisionToolRow({ block }: ToolCallViewProps): React.ReactElement {
   const settled = 'kind' in block;
+  const input = toolInput(block);
   const output = toolOutput(block);
+  const image = resultImage(block);
   const state = !settled ? 'running' : block.error?.code === 'interrupted' ? 'stopped' : block.isError ? 'error' : 'ok';
-  const summary = state === 'error' && output !== null ? firstLine(output) : visionQuestion(block);
-  const expandable = output !== null;
-  const [open, setOpen] = React.useState(false);
-  const expanded = open && expandable;
-  const toggle = (): void => { if (expandable) setOpen((value) => !value); };
+  const summary = state === 'error' && output !== null
+    ? firstLine(output)
+    : image === undefined
+      ? visionQuestion(block)
+      : `已查看 1 张图片 · ${String(image.width)} × ${String(image.height)}`;
+  const imageExpandable = image !== undefined;
+  const detailsExpandable = input !== null || output !== null;
+  const [imageOpen, setImageOpen] = React.useState(false);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const initializedImageRef = React.useRef<string | undefined>(undefined);
+  const imageKey = image === undefined
+    ? undefined
+    : `${String(image.attachmentId)}:${String(image.bytes)}:${String(image.width)}x${String(image.height)}`;
+  React.useEffect(() => {
+    if (imageKey === undefined || initializedImageRef.current === imageKey) return;
+    initializedImageRef.current = imageKey;
+    setImageOpen(true);
+  }, [imageKey]);
+  const imageExpanded = imageOpen && imageExpandable;
+  const detailsExpanded = detailsOpen && detailsExpandable;
+  const header = (
+    <>
+      <span className="dsh-vision-tool-leading">
+        {state === 'error' ? <StateDot state="error" /> : state === 'stopped' ? <StateDot state="warning" /> : <IconSparkle16 size={14} />}
+      </span>
+      <span className="dsh-vision-tool-title">DFY VISION ANALYZE</span>
+    </>
+  );
 
   return (
     <div className="dsh-vision-tool-card" data-state={state} data-tool="dfy_vision_analyze">
-      <div
-        className="dsh-vision-tool-row"
-        data-expandable={expandable || undefined}
-        role={expandable ? 'button' : undefined}
-        tabIndex={expandable ? 0 : undefined}
-        aria-expanded={expandable ? expanded : undefined}
-        onClick={toggle}
-        onKeyDown={(event) => {
-          if (!expandable || (event.key !== 'Enter' && event.key !== ' ')) return;
-          event.preventDefault();
-          toggle();
-        }}
-      >
-        <span className="dsh-vision-tool-leading">
-          {state === 'error' ? <StateDot state="error" /> : state === 'stopped' ? <StateDot state="warning" /> : expanded ? <IconChevronDownOutline14 /> : <IconSparkle16 size={14} />}
-        </span>
-        <span className="dsh-vision-tool-title">DFY VISION ANALYZE</span>
+      <div className="dsh-vision-tool-row" data-expandable={imageExpandable || undefined}>
+        {!detailsExpandable ? (
+          <span className="dsh-vision-tool-inspect-target">{header}</span>
+        ) : (
+          <button
+            type="button"
+            className="dsh-vision-tool-inspect-target"
+            aria-label={`DFY VISION ANALYZE，${detailsExpanded ? '收起参数' : '展开参数'}`}
+            aria-expanded={detailsExpanded}
+            onClick={() => setDetailsOpen((value) => !value)}
+          >
+            {header}
+          </button>
+        )}
         <span className="dsh-vision-tool-separator" aria-hidden />
-        <span className="dsh-vision-tool-summary" data-error={state === 'error' || undefined}>{summary}</span>
+        {imageExpandable ? (
+          <button
+            type="button"
+            className="dsh-vision-tool-summary-toggle"
+            aria-label={`${summary}，${imageExpanded ? '收起图片' : '展开图片'}`}
+            aria-expanded={imageExpanded}
+            onClick={() => setImageOpen((value) => !value)}
+          >
+            <span className="dsh-vision-tool-summary" data-error={state === 'error' || undefined}>{summary}</span>
+            <IconChevronDownOutline14 className="dsh-vision-tool-chevron" size={14} />
+          </button>
+        ) : (
+          <span className="dsh-vision-tool-summary" data-error={state === 'error' || undefined}>{summary}</span>
+        )}
       </div>
-      {expanded ? (
-        <div className="dsh-vision-tool-body">
-          <pre className="dsh-vision-tool-output" data-error={state === 'error' || undefined}>{output}</pre>
-          {inspect === undefined ? null : (
-            <button type="button" className="dsh-vision-tool-inspect" onClick={inspect}>
-              <IconInspectOutline12 /> Inspect
-            </button>
+      {!imageExpanded || image === undefined ? null : <VisionImagePreview attachment={image} />}
+      {!detailsExpanded ? null : (
+        <div className="dsh-vision-tool-io-card">
+          {input === null ? null : (
+            <div className="dsh-vision-tool-io-section">
+              <span className="dsh-vision-tool-io-label">IN</span>
+              <pre className="dsh-vision-tool-io-text">{input}</pre>
+            </div>
+          )}
+          {input === null || output === null ? null : <span className="dsh-vision-tool-io-divider" aria-hidden />}
+          {output === null ? null : (
+            <div className="dsh-vision-tool-io-section">
+              <span className="dsh-vision-tool-io-label">OUT</span>
+              <pre className="dsh-vision-tool-io-text" data-error={state === 'error' || undefined}>{output}</pre>
+            </div>
           )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -536,6 +708,10 @@ function VisionCard({ scope }: { scope: SettingsScope<VisionSettings> }): React.
 
 export function apply(ctx: ClientCtx): void {
   ctx.effect(installStyles, 'dsh-vision: client styles');
+  ctx.effect(() => () => {
+    for (const pending of resourceUrls.values()) void pending.then((url) => URL.revokeObjectURL(url));
+    resourceUrls.clear();
+  }, 'dsh-vision: release object URLs');
   const scope = ctx.settingsScope.bind<VisionSettings>({ namespace: 'dsh-vision' });
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview',

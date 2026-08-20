@@ -7,11 +7,16 @@ import type {} from '@deepseek-ai/dsh-fs';
 import { settingsNamespace } from '@deepseek-ai/dsh-settings';
 import type {} from '@deepseek-ai/dsh-skill';
 import { defineTool } from '@deepseek-ai/dsh-tools';
-import type { GenericCallView, ToolRunContext } from '@deepseek-ai/dsh-tools';
+import type { GenericCallView, JsonValue, ToolResult, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver';
 import type { IncomingMessage } from 'node:http';
 import z from '@deepseek-ai/schemastery';
 import type MediaBlocks from '@dfy-plugins/dsh-media-blocks';
+import {
+  decodeResourceReference,
+  getProcessResourceRegistry,
+} from '@dfy-plugins/resource-core';
+import { createOfficialImageBlock, detectImageMediaType } from '@dfy-plugins/image-protocol';
 
 import {
   decodeImageRef,
@@ -49,6 +54,7 @@ export const Config: z<Config> = z.object({
 
 const SETTINGS_NS = settingsNamespace('dsh-vision');
 const API_PATH = '/api/dsh-vision/routes';
+const RESOURCE_API_PATH = '/api/dsh-vision/resource';
 const TOOL_NAME = 'dfy_vision_analyze';
 const SKILL_NAME = 'dfy-vision';
 const DEFAULT_MAX_TOKENS = 1024;
@@ -199,11 +205,41 @@ async function readReferencedImage(
   };
 }
 
+export async function readResourceImage(
+  ctx: Context,
+  exec: ToolRunContext,
+  resourceRef: string,
+): Promise<ResolvedToolImage> {
+  const token = resourceRef.trim();
+  const reference = decodeResourceReference(token);
+  const resource = await getProcessResourceRegistry().resolve(token, 'image', exec.signal);
+  if (resource.data === undefined) throw new Error('image resource does not expose in-process bytes');
+  const byteCap = Math.min(
+    ctx.attachments.imageLimits.maxImageBytes,
+    ctx.attachments.imageLimits.maxMessageImageBytes,
+  );
+  if (resource.data.byteLength === 0 || resource.data.byteLength > byteCap) {
+    throw new Error(`image resource exceeds the ${String(byteCap)} byte limit`);
+  }
+  const mediaType = detectImageMediaType(resource.data);
+  if (mediaType === undefined || !ctx.attachments.imageLimits.mediaTypes.includes(mediaType)) {
+    throw new Error('image resource has an unsupported or mismatched format');
+  }
+  if (resource.mediaType !== undefined && resource.mediaType !== mediaType) {
+    throw new Error('image resource media type does not match its bytes');
+  }
+  const name = typeof resource.name === 'string' && resource.name.length > 0
+    ? resource.name.replace(/[\u0000-\u001f\u007f]/gu, ' ').slice(0, 255)
+    : `browser-screenshot-${reference.id.slice(0, 8)}.png`;
+  const ref = await ctx.attachments.saveImage({ data: resource.data, mediaType, name });
+  return { label: `resource:${reference.provider}/${reference.id}`, ref };
+}
+
 async function analyzeImage(
   ctx: Context,
   exec: ToolRunContext,
   config: ResolvedConfig,
-  source: { filePath?: string; imageRef?: string },
+  source: { filePath?: string; imageRef?: string; resourceRef?: string },
   question: string,
 ): Promise<VisionResultValue> {
   const modelInfo = await ctx.llm.resolveModelInfo(config.provider, config.model, exec.signal);
@@ -211,12 +247,15 @@ async function analyzeImage(
   if (unsupported !== undefined) throw new Error(unsupported.message);
   const filePath = source.filePath?.trim() ?? '';
   const imageRef = source.imageRef?.trim() ?? '';
-  if ((filePath.length === 0) === (imageRef.length === 0)) {
-    throw new Error('provide exactly one of file_path or image_ref');
+  const resourceRef = source.resourceRef?.trim() ?? '';
+  if ([filePath, imageRef, resourceRef].filter((value) => value.length > 0).length !== 1) {
+    throw new Error('provide exactly one of file_path, image_ref, or resource_ref');
   }
   const image = filePath.length > 0
     ? await saveToolImage(ctx, exec, filePath)
-    : await readReferencedImage(ctx, exec, imageRef);
+    : imageRef.length > 0
+      ? await readReferencedImage(ctx, exec, imageRef)
+      : await readResourceImage(ctx, exec, resourceRef);
   const prompt = question.trim();
   if (prompt.length === 0) throw new Error('question must be a non-empty string');
 
@@ -247,6 +286,7 @@ async function analyzeImage(
   if (analysis.length === 0) throw new Error('visual model returned no text analysis');
   return {
     path: image.label,
+    imageRef: encodeImageRef(image.ref),
     provider: config.provider,
     model: config.model,
     analysis,
@@ -260,6 +300,36 @@ async function analyzeImage(
   };
 }
 
+interface VisionPresentationMeta {
+  version: 1;
+  imageRef: string;
+}
+
+function visionPresentationMeta(value: VisionResultValue): JsonValue {
+  return { version: 1, imageRef: value.imageRef };
+}
+
+function isVisionPresentationMeta(value: unknown): value is VisionPresentationMeta {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const meta = value as Partial<VisionPresentationMeta>;
+  return meta.version === 1 && typeof meta.imageRef === 'string';
+}
+
+function presentVisionResult(result: ToolResult) {
+  if (result.isError || !isVisionPresentationMeta(result.meta)) return undefined;
+  try {
+    const attachment = decodeImageRef(result.meta.imageRef);
+    return {
+      card: 'generic' as const,
+      content: [...result.content, createOfficialImageBlock(attachment)],
+    };
+  } catch {
+    // A stale or malformed presentation reference must not replace the readable
+    // model-facing text fallback during replay.
+    return undefined;
+  }
+}
+
 function createVisionTool(ctx: Context, current: () => Config) {
   return defineTool({
     name: TOOL_NAME,
@@ -267,11 +337,15 @@ function createVisionTool(ctx: Context, current: () => Config) {
     parameters: {
       file_path: {
         type: 'string',
-        description: 'Image path, resolved relative to the current session workspace. Use either file_path or image_ref.',
+        description: 'Image path, resolved relative to the current session workspace. Use exactly one image source.',
       },
       image_ref: {
         type: 'string',
-        description: 'Opaque token copied from inside <image_ref>...</image_ref>, without XML quotes or tags. Use either image_ref or file_path.',
+        description: 'Opaque Attachment token copied from inside <image_ref>...</image_ref>, without XML quotes or tags. Use exactly one image source.',
+      },
+      resource_ref: {
+        type: 'string',
+        description: 'Opaque resourceRef returned by the built-in browser screenshot API. Use exactly one image source.',
       },
       question: {
         type: 'string',
@@ -285,6 +359,7 @@ function createVisionTool(ctx: Context, current: () => Config) {
         additionalProperties: false,
         properties: {
           path: { type: 'string', required: true },
+          imageRef: { type: 'string', required: true },
           provider: { type: 'string', required: true },
           model: { type: 'string', required: true },
           analysis: { type: 'string', required: true },
@@ -303,14 +378,15 @@ function createVisionTool(ctx: Context, current: () => Config) {
         },
       },
       render: (_args, value) => [{ type: 'text', text: renderVisionResult(value as VisionResultValue) }],
+      presentationMeta: (_args, value) => visionPresentationMeta(value as VisionResultValue),
     },
     isConcurrencySafe: () => true,
     execute: async (args, exec) => analyzeImage(ctx, exec, resolvedConfig(current()), {
       ...(args.file_path === undefined ? {} : { filePath: args.file_path }),
       ...(args.image_ref === undefined ? {} : { imageRef: args.image_ref }),
+      ...(args.resource_ref === undefined ? {} : { resourceRef: args.resource_ref }),
     }, args.question),
     presentCall(args): GenericCallView {
-      const label = args.file_path ?? 'attached image';
       return {
         card: 'generic',
         title: 'DFY VISION ANALYZE',
@@ -318,6 +394,7 @@ function createVisionTool(ctx: Context, current: () => Config) {
         ...(args.file_path === undefined ? {} : { locations: [{ path: args.file_path }] }),
       };
     },
+    presentResult: (_args, result) => presentVisionResult(result),
   });
 }
 
@@ -423,6 +500,17 @@ export function apply(ctx: Context, entryConfig: Config): void {
       activation = unavailable;
       return;
     }
+    // Sessions snapshot their available Skills and tools when they are created.
+    // Register a configured route before the asynchronous model probe so a
+    // conversation opened during desktop startup does not permanently miss
+    // vision. Execution still resolves the model again, and a failed probe
+    // below promptly removes both registrations.
+    try {
+      ensureFeatures();
+    } catch (error) {
+      activation = { status: 'error', message: String(error) };
+      return;
+    }
     activation = { status: 'checking' };
     try {
       const modelInfo = await ctx.llm.resolveModelInfo(config.provider, config.model);
@@ -516,6 +604,35 @@ export function apply(ctx: Context, entryConfig: Config): void {
       kind: 'exact',
       path: API_PATH,
       async handler(req, res) {
+        if (req.method === 'POST') {
+          const mediaType = requestImageMediaType(req);
+          if (mediaType === undefined || !ctx.attachments.imageLimits.mediaTypes.includes(mediaType)) {
+            req.resume();
+            return sendJson(res, 415, { error: 'expected a supported PNG, JPEG, WebP, or GIF request body' });
+          }
+          try {
+            const byteCap = Math.min(
+              ctx.attachments.imageLimits.maxImageBytes,
+              ctx.attachments.imageLimits.maxMessageImageBytes,
+            );
+            const data = await readRequestBytes(req, byteCap);
+            const name = requestImageName(req);
+            const ref = await ctx.attachments.saveImage({
+              data,
+              mediaType,
+              ...(name === undefined ? {} : { name }),
+            });
+            return sendJson(res, 201, {
+              imageRef: encodeImageRef(ref),
+              attachment: { ...ref, attachmentId: String(ref.attachmentId) },
+            });
+          } catch (error) {
+            if (error instanceof UploadTooLargeError) {
+              return sendJson(res, 413, { error: 'image exceeds the configured attachment byte limit' });
+            }
+            return sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+          }
+        }
         if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
         try {
           if (activation.status === 'checking' || activation.status === 'error') await refresh();
@@ -530,7 +647,28 @@ export function apply(ctx: Context, entryConfig: Config): void {
         }
       },
     };
+    const resourceRoute: WebRoute = {
+      kind: 'exact',
+      path: RESOURCE_API_PATH,
+      async handler(req, res) {
+        if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+        try {
+          const token = new URL(req.url ?? RESOURCE_API_PATH, 'http://localhost').searchParams.get('ref');
+          if (token === null) throw new Error('缺少资源引用');
+          const stored = await ctx.attachments.readImage(decodeImageRef(token));
+          res.writeHead(200, {
+            'content-type': stored.ref.mediaType,
+            'content-length': stored.data.byteLength,
+            'cache-control': 'private, max-age=31536000, immutable',
+          });
+          res.end(Buffer.from(stored.data));
+        } catch (error) {
+          sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+        }
+      },
+    };
     webCtx.webServer.register(routesRoute);
+    webCtx.webServer.register(resourceRoute);
   });
 
   ctx.effect(() => () => {

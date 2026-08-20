@@ -28,7 +28,7 @@ pnpm test
 ## 安装
 
 ```bash
-dsh plugin --profile web add /path/to/deepseek-harness-plugins/plugins/wallpaper
+dsh plugin --profile web add /path/to/dfy-dsh-plugins/plugins/wallpaper
 ```
 
 重启 DeepSeek Harness 后，在「设置 → 壁纸」中选择图片。配置保存在

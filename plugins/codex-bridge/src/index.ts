@@ -49,7 +49,7 @@ export const Config: z<Config> = z.object({
 const SETTINGS_NS = settingsNamespace('dsh-codex-bridge');
 const STATUS_PATH = '/api/dsh-codex-bridge/status';
 const DISCOVERY_PATH = process.env.DSH_CODEX_BRIDGE_FILE
-  ?? join(homedir(), '.saltfish', 'deepseek-harness', 'codex-bridge-endpoint.json');
+  ?? join(homedir(), '.saltfish', 'dfy-dsh', 'codex-bridge-endpoint.json');
 
 interface RpcRequest {
   method?: unknown;

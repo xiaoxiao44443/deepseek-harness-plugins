@@ -1,14 +1,14 @@
 {
-  "name": "deepseek-harness-plugins",
+  "name": "dfy-dsh-plugins",
   "interface": {
-    "displayName": "Deepseek Harness Plugins"
+    "displayName": "DFY DSH Plugins"
   },
   "plugins": [
     {
-      "name": "deepseek-harness",
+      "name": "dfy-dsh",
       "source": {
         "source": "local",
-        "path": "./plugins/deepseek-harness"
+        "path": "./plugins/dfy-dsh"
       },
       "policy": {
         "installation": "AVAILABLE",

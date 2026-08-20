@@ -19,7 +19,7 @@ pnpm test            # node --test（归档逻辑，基于临时目录）
 ## 安装
 
 ```bash
-dsh plugin --profile web add /path/to/deepseek-harness-plugins/plugins/archive-manager
+dsh plugin --profile web add /path/to/dfy-dsh-plugins/plugins/archive-manager
 ```
 
 `dsh.bundle.patch` 让插件加入 Profile 层栈；`dsh.client` 让浏览器端扫描并加载

@@ -1,13 +1,13 @@
 {
-  "name": "deepseek-harness",
-  "version": "0.1.0+codex.20260819193013",
+  "name": "dfy-dsh",
+  "version": "0.1.0+codex.20260820052905",
   "description": "Connect Codex to the local DeepSeek Harness runtime, tools, and skills.",
   "author": {
     "name": "Saltfish"
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "DeepSeek Harness",
+    "displayName": "DFY DSH",
     "shortDescription": "Use local Harness tools and skills from Codex.",
     "longDescription": "Connects Codex to a DeepSeek Harness Host plugin over an authenticated loopback bridge. Codex can inspect active sessions, send idempotent queue or steer messages, monitor and cancel individual runs, read transcripts, load Harness skills, and call live Harness tools without depending on Electron.",
     "developerName": "Saltfish",

@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-const SERVER_NAME = 'deepseek-harness'
+const SERVER_NAME = 'dfy-dsh'
 const SERVER_VERSION = '0.1.0'
 const DISCOVERY_PATH = process.env.DSH_CODEX_BRIDGE_FILE
-  || join(homedir(), '.saltfish', 'deepseek-harness', 'codex-bridge-endpoint.json')
+  || join(homedir(), '.saltfish', 'dfy-dsh', 'codex-bridge-endpoint.json')
 
 const STATIC_TOOLS = [
   {
@@ -229,7 +229,7 @@ async function dispatch(method, params) {
       const result = await bridgeRequest('tools.list', {})
       dynamic = Array.isArray(result?.tools) ? result.tools : []
     } catch (error) {
-      process.stderr.write(`[deepseek-harness] ${error instanceof Error ? error.message : String(error)}\n`)
+      process.stderr.write(`[dfy-dsh] ${error instanceof Error ? error.message : String(error)}\n`)
     }
     const reserved = new Set(STATIC_TOOLS.map((tool) => tool.name))
     return {

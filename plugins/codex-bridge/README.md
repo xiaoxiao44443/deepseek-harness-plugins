@@ -1,4 +1,4 @@
-# DSH Codex Bridge
+# DFY DSH Bridge
 
 让 Codex 通过本机 MCP 使用 DeepSeek Harness 当前活动会话的工具与 Skills。
 
@@ -45,7 +45,7 @@ Harness 工具仍会按原名动态暴露，方便 Codex 使用准确的参数 S
 Codex 插件的唯一源码位于：
 
 ```text
-plugins/codex-bridge/codex-marketplace/plugins/deepseek-harness
+plugins/codex-bridge/codex-marketplace/plugins/dfy-dsh
 ```
 
 仓库根目录的 `.agents/plugins/marketplace.json` 直接引用该目录，不再维护第二份同步副本。
@@ -55,7 +55,7 @@ plugins/codex-bridge/codex-marketplace/plugins/deepseek-harness
 默认发现文件：
 
 ```text
-~/.saltfish/deepseek-harness/codex-bridge-endpoint.json
+~/.saltfish/dfy-dsh/codex-bridge-endpoint.json
 ```
 
 可用 `DSH_CODEX_BRIDGE_FILE` 覆盖位置。发现文件只包含环回地址、随机令牌和进程号，不包含模型 API Key。

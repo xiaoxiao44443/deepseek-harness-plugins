@@ -1,13 +1,8 @@
 {
   "mcpServers": {
-    "deepseek_harness": {
-      "command": "cmd.exe",
+    "dfy_dsh": {
+      "command": "node",
       "args": [
-        "/d",
-        "/s",
-        "/c",
-        "call",
-        "./scripts/launch_dsh_mcp.cmd",
         "./server.mjs"
       ],
       "cwd": ".",

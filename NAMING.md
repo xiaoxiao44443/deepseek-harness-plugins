@@ -35,6 +35,7 @@
 | 插件 | Cordis ID | 设置 ID/命名空间 | API | 数据目录 |
 | --- | --- | --- | --- | --- |
 | `@dfy-plugins/dsh-archive-manager` | `archive-manager` | `archives` | `/api/dsh-archive-manager` | 无独立目录 |
+| `@dfy-plugins/dsh-appearance` | `appearance` | `dsh-appearance` | 无 | 无独立目录 |
 | `@dfy-plugins/dsh-wallpaper` | `wallpaper` | `wallpaper` | `/api/dsh-wallpaper` | `storages/dfy-plugins/wallpaper`（自动迁移旧目录） |
 | `@dfy-plugins/dsh-media-blocks` | `media-blocks` | 无 | `/api/dsh-media-blocks` | 图片复用 Harness attachments |
 | `@dfy-plugins/dsh-vision` | `vision` | `dsh-vision` | `/api/dsh-vision` | 无独立目录 |

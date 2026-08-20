@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,9 +9,25 @@ import { spawn } from 'node:child_process';
 import test from 'node:test';
 
 const SERVER_PATH = fileURLToPath(new URL(
-  '../codex-marketplace/plugins/deepseek-harness/server.mjs',
+  '../codex-marketplace/plugins/dfy-dsh/server.mjs',
   import.meta.url,
 ));
+const MCP_CONFIG_PATH = fileURLToPath(new URL(
+  '../codex-marketplace/plugins/dfy-dsh/.mcp.json',
+  import.meta.url,
+));
+
+test('Codex MCP config uses the cross-platform Node launcher', async () => {
+  const config = JSON.parse(await readFile(MCP_CONFIG_PATH, 'utf8'));
+  assert.deepEqual(config.mcpServers.dfy_dsh, {
+    command: 'node',
+    args: ['./server.mjs'],
+    cwd: '.',
+    enabled: true,
+    startup_timeout_sec: 10,
+    tool_timeout_sec: 3600,
+  });
+});
 
 function createMcpClient(child) {
   let input = '';

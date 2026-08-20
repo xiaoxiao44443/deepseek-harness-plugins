@@ -12,7 +12,10 @@ test('image generation keeps package, Cordis, API, settings, Tool and Skill ids 
     readFile(new URL('src/client.tsx', pluginRoot), 'utf8'),
   ]);
 
-  assert.equal(JSON.parse(pkg).name, '@dfy-plugins/dsh-image-generation');
+  const manifest = JSON.parse(pkg);
+  assert.equal(manifest.name, '@dfy-plugins/dsh-image-generation');
+  assert.equal(manifest.dependencies?.['@dfy-plugins/dsh-media-blocks'], undefined);
+  assert.equal(manifest.peerDependenciesMeta?.['@dfy-plugins/dsh-media-blocks']?.optional, true);
   assert.match(patch, /id: image-generation\r?\n\s+name: '@dfy-plugins\/dsh-image-generation'/);
   assert.match(host, /settingsNamespace\('dsh-image-generation'\)/);
   assert.match(host, /baseUrl: z\.string\(\)\.default\(''\)/);
@@ -21,9 +24,13 @@ test('image generation keeps package, Cordis, API, settings, Tool and Skill ids 
   assert.match(host, /credentialRef\('DFY_IMAGE_GENERATION_API_KEY'\)/);
   assert.match(host, /ctx\.credentials\.set\(IMAGE_API_KEY_REF, apiKey\.trim\(\)\)/);
   assert.match(host, /'\/api\/dsh-image-generation\/status'/);
+  assert.match(host, /'\/api\/dsh-image-generation\/resource'/);
+  assert.match(host, /createOfficialImageBlock/);
   assert.match(host, /'dfy_image_generate'/);
   assert.match(host, /'dfy-image-generation'/);
   assert.match(client, /DFY IMAGE GENERATE/);
+  assert.match(client, /'\/api\/dsh-image-generation\/resource'/);
+  assert.doesNotMatch(client, /dsh-media-blocks\/resource/);
   assert.match(client, /type="password"/);
   assert.match(client, /已配置 —— 输入新值可替换/);
   assert.match(client, /ctx\.effect\(installStyles, 'dsh-image-generation: client styles'\)/);

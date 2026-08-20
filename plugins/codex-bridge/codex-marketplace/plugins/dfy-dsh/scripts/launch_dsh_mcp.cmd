@@ -2,7 +2,7 @@
 setlocal
 
 if "%~1"=="" (
-  echo DeepSeek Harness MCP could not start: missing server path. 1>&2
+  echo DFY DSH MCP could not start: missing server path. 1>&2
   exit /b 64
 )
 
@@ -25,5 +25,5 @@ if not errorlevel 1 (
   exit /b
 )
 
-echo DeepSeek Harness MCP could not find a Node runtime. Set CODEX_MCP_NODE_PATH or install Node.js, then retry. 1>&2
+echo DFY DSH MCP could not find a Node runtime. Set CODEX_MCP_NODE_PATH or install Node.js, then retry. 1>&2
 exit /b 127

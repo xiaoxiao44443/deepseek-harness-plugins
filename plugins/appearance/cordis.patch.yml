@@ -1,0 +1,4 @@
+# @dfy-plugins/dsh-appearance bundle patch — Host settings plus the Client appearance page.
+- insert:
+    - id: appearance
+      name: '@dfy-plugins/dsh-appearance'

@@ -14,7 +14,7 @@ test('media blocks keeps package, Cordis, API and content ids intentionally sepa
 
   assert.equal(JSON.parse(pkg).name, '@dfy-plugins/dsh-media-blocks');
   assert.match(patch, /id: media-blocks\r?\n\s+name: '@dfy-plugins\/dsh-media-blocks'/);
-  assert.match(host, /MEDIA_BLOCK_TYPE = 'xiao443-media'/);
+  assert.match(host, /MEDIA_BLOCK_TYPE = 'dfy-media'/);
   assert.match(host, /MEDIA_PROMPT_API = '\/api\/dsh-media-blocks\/prompt'/);
   assert.match(host, /message: `Model "\$\{payload\.selection\.model\}" does not support image input\.`/);
   assert.match(host, /details: \{ reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' \}/);

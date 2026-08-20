@@ -1,9 +1,9 @@
 ---
-name: deepseek-harness
+name: dfy-dsh
 description: Use the local DeepSeek Harness runtime when the user asks Codex to test Harness behavior, call a Harness plugin tool, inspect the active Harness tool catalog, or follow a Harness skill.
 ---
 
-# DeepSeek Harness bridge
+# DFY DSH
 
 Use `dsh_list_sessions` to discover active Harness agent sessions when session identity matters.
 

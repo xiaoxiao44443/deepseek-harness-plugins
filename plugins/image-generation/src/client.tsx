@@ -1,7 +1,6 @@
 /** Client settings and Tool presentation for dedicated image generation. */
 import React from 'react';
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment';
-import { ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment';
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client';
 import {
   IconChevronDownOutline14,
@@ -70,14 +69,19 @@ interface StatusResponse {
   error?: string;
 }
 
-interface MediaImageBlock {
-  type: 'xiao443-media';
-  version: 1;
-  resource: {
-    kind: 'image';
-    ref: string;
-    attachment: ImageAttachmentRef;
-  };
+interface ImageBlock {
+  type: 'image';
+  attachment: ImageAttachmentRef;
+}
+
+type ImageLoader = (attachment: ImageAttachmentRef) => Promise<string>;
+
+interface ImageLabels {
+  image: string;
+  open: string;
+  loading: string;
+  loadFailed: string;
+  lightbox: { dialog: string; close: string };
 }
 
 interface SelectOption {
@@ -89,7 +93,7 @@ export const name = 'image-generation';
 export const inject = ['slots', 'settingsScope'];
 
 const STATUS_API = '/api/dsh-image-generation/status';
-const RESOURCE_API = '/api/dsh-media-blocks/resource';
+const RESOURCE_API = '/api/dsh-image-generation/resource';
 const STYLE_ID = '@dfy-plugins/dsh-image-generation';
 
 const QUALITY_OPTIONS: readonly SelectOption[] = [
@@ -164,6 +168,15 @@ const STYLES = `
 .dsh-imagegen-tool-summary { min-width:0; flex:auto; overflow:hidden; color:var(--dsw-alias-label-tertiary); font-size:14px; line-height:24px; text-overflow:ellipsis; white-space:nowrap; }
 .dsh-imagegen-tool-summary[data-error] { color:var(--dsw-alias-state-error-primary); }
 .dsh-imagegen-tool-gallery { width:min(560px,100%); margin:8px 0 4px 22px; }
+.dsh-imagegen-gallery { display:flex; max-width:100%; flex-wrap:wrap; gap:8px; }
+.dsh-imagegen-thumb { display:grid; width:96px; height:96px; appearance:none; place-items:center; padding:0; overflow:hidden; border:1px solid var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.2)); border-radius:16px; background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.1)); color:var(--dsw-alias-label-secondary,inherit); cursor:zoom-in; }
+.dsh-imagegen-gallery[data-single=true] .dsh-imagegen-thumb { width:min(420px,70vw); height:min(420px,70vw); }
+.dsh-imagegen-thumb img { display:block; width:100%; height:100%; object-fit:cover; }
+.dsh-imagegen-thumb:focus-visible { outline:2px solid var(--dsw-alias-brand-primary,#298df8); outline-offset:2px; }
+.dsh-imagegen-retry { cursor:pointer; font:inherit; }
+.dsh-imagegen-lightbox { position:fixed; z-index:10000; inset:0; display:grid; place-items:center; padding:32px; background:rgba(0,0,0,.78); cursor:zoom-out; }
+.dsh-imagegen-lightbox img { max-width:calc(100vw - 64px); max-height:calc(100vh - 64px); object-fit:contain; cursor:default; }
+.dsh-imagegen-lightbox-close { position:fixed; top:20px; right:20px; width:36px; height:36px; border:0; border-radius:999px; background:rgba(255,255,255,.16); color:#fff; cursor:pointer; font-size:24px; line-height:1; }
 .dsh-imagegen-tool-output { max-height:220px; margin:6px 0 4px 22px; overflow:auto; border:1px solid var(--dsw-alias-border-l1); border-radius:12px; background:var(--dsw-alias-markdown-code-block); color:var(--dsw-alias-label-secondary); white-space:pre-wrap; overflow-wrap:anywhere; padding:10px 12px; font:var(--dsw-font-markdown-code-block-small); }
 .dsh-imagegen-tool-output[data-error] { color:var(--dsw-alias-state-error-primary); }
 .dsh-imagegen-tool-inspect { display:inline-flex; align-self:flex-start; align-items:center; gap:4px; margin:4px 0 2px 22px; padding:2px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:999px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-secondary); cursor:pointer; font-size:11px; line-height:16px; }
@@ -185,7 +198,23 @@ function installStyles(): () => void {
 
 const resourceUrls = new Map<string, Promise<string>>();
 
-function loadReferencedImage(ref: string): Promise<string> {
+function encodeImageRef(ref: ImageAttachmentRef): string {
+  const value = JSON.stringify({
+    attachmentId: String(ref.attachmentId),
+    mediaType: ref.mediaType,
+    bytes: ref.bytes,
+    width: ref.width,
+    height: ref.height,
+    ...(ref.name === undefined ? {} : { name: ref.name }),
+  });
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+function loadReferencedImage(attachment: ImageAttachmentRef): Promise<string> {
+  const ref = encodeImageRef(attachment);
   const cached = resourceUrls.get(ref);
   if (cached !== undefined) return cached;
   const pending = fetch(`${RESOURCE_API}?ref=${encodeURIComponent(ref)}`, { cache: 'force-cache' })
@@ -198,14 +227,81 @@ function loadReferencedImage(ref: string): Promise<string> {
   return pending;
 }
 
-function isMediaImageBlock(value: unknown): value is MediaImageBlock {
+function isImageBlock(value: unknown): value is ImageBlock {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const block = value as Partial<MediaImageBlock>;
-  return block.type === 'xiao443-media'
-    && block.resource?.kind === 'image'
-    && typeof block.resource.ref === 'string'
-    && typeof block.resource.attachment === 'object'
-    && block.resource.attachment !== null;
+  const block = value as Partial<ImageBlock>;
+  return block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null;
+}
+
+function ImageThumbnail({ attachment, load, labels, onOpen }: {
+  attachment: ImageAttachmentRef;
+  load: ImageLoader;
+  labels: ImageLabels;
+  onOpen(url: string, alt: string): void;
+}): React.ReactElement {
+  const [attempt, setAttempt] = React.useState(0);
+  const [state, setState] = React.useState<{ url?: string; failed?: boolean }>({});
+  const alt = attachment.name ?? labels.image;
+  React.useEffect(() => {
+    let active = true;
+    setState({});
+    void load(attachment).then(
+      (url) => { if (active) setState({ url }); },
+      () => { if (active) setState({ failed: true }); },
+    );
+    return () => { active = false; };
+  }, [attachment, attempt, load]);
+  if (state.failed === true) {
+    return <button type="button" className="dsh-imagegen-thumb dsh-imagegen-retry" onClick={() => setAttempt((value) => value + 1)}>{labels.loadFailed}</button>;
+  }
+  return (
+    <button
+      type="button"
+      className="dsh-imagegen-thumb"
+      aria-label={alt}
+      title={labels.open}
+      disabled={state.url === undefined}
+      onClick={() => { if (state.url !== undefined) onOpen(state.url, alt); }}
+    >
+      {state.url === undefined ? labels.loading : <img src={state.url} alt={alt} />}
+    </button>
+  );
+}
+
+function ImageGallery({ images, load, labels }: {
+  images: readonly { attachment: ImageAttachmentRef }[];
+  load: ImageLoader;
+  labels: ImageLabels;
+}): React.ReactElement | null {
+  const [open, setOpen] = React.useState<{ url: string; alt: string }>();
+  React.useEffect(() => {
+    if (open === undefined) return undefined;
+    const close = (event: KeyboardEvent): void => { if (event.key === 'Escape') setOpen(undefined); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [open]);
+  if (images.length === 0) return null;
+  return (
+    <>
+      <div className="dsh-imagegen-gallery" data-single={images.length === 1 ? 'true' : 'false'}>
+        {images.map(({ attachment }) => (
+          <ImageThumbnail
+            key={String(attachment.attachmentId)}
+            attachment={attachment}
+            load={load}
+            labels={labels}
+            onOpen={(url, alt) => setOpen({ url, alt })}
+          />
+        ))}
+      </div>
+      {open !== undefined && (
+        <div className="dsh-imagegen-lightbox" role="dialog" aria-modal="true" aria-label={labels.lightbox.dialog} onClick={() => setOpen(undefined)}>
+          <button type="button" className="dsh-imagegen-lightbox-close" aria-label={labels.lightbox.close} onClick={() => setOpen(undefined)}>×</button>
+          <img src={open.url} alt={open.alt} onClick={(event) => event.stopPropagation()} />
+        </div>
+      )}
+    </>
+  );
 }
 
 function firstLine(value: string): string {
@@ -214,7 +310,14 @@ function firstLine(value: string): string {
 
 function toolOutput(block: ToolCallViewProps['block']): string | null {
   if (!('kind' in block)) return null;
-  const parts = block.content.map((item) => item.type === 'text' ? item.text : JSON.stringify(item, null, 2));
+  const parts = block.content.flatMap((item: unknown) => {
+    if (isImageBlock(item)) return [];
+    if (typeof item === 'object' && item !== null && (item as { type?: unknown }).type === 'text') {
+      const text = (item as { text?: unknown }).text;
+      return typeof text === 'string' ? [text] : [];
+    }
+    return [JSON.stringify(item, null, 2)];
+  });
   if (parts.length === 0 && block.error !== undefined) parts.push(`${block.error.name}: ${block.error.code}`);
   return parts.join('\n') || null;
 }
@@ -228,11 +331,11 @@ function toolPrompt(block: ToolCallViewProps['block']): string {
   return '生成图片';
 }
 
-function resultImages(block: ToolCallViewProps['block']): MediaImageBlock[] {
+function resultImages(block: ToolCallViewProps['block']): ImageBlock[] {
   if (!('kind' in block) || block.resultView?.card !== 'generic') return [];
-  const images: MediaImageBlock[] = [];
+  const images: ImageBlock[] = [];
   for (const item of block.resultView.content ?? []) {
-    if (isMediaImageBlock(item)) images.push(item);
+    if (isImageBlock(item)) images.push(item);
   }
   return images;
 }
@@ -245,20 +348,10 @@ function ImageToolRow({ block, inspect }: ToolCallViewProps): React.ReactElement
   const summary = state === 'error' && output !== null ? firstLine(output) : toolPrompt(block);
   const [open, setOpen] = React.useState(false);
   const expandable = output !== null;
-  const refs = React.useMemo(() => new Map(images.map((image) => [
-    String(image.resource.attachment.attachmentId),
-    image.resource.ref,
-  ])), [images]);
-  const refKey = JSON.stringify([...refs.entries()]);
-  const loader = React.useCallback<ImageLoader>((attachment) => {
-    const ref = refs.get(String(attachment.attachmentId));
-    if (ref === undefined) return Promise.reject(new Error('missing image reference'));
-    return loadReferencedImage(ref);
-  }, [refKey]);
+  const loader = React.useCallback<ImageLoader>((attachment) => loadReferencedImage(attachment), []);
   const labels = {
     image: '生成的图片',
     open: '打开原图',
-    openNamed: (label: string) => `打开 ${label}`,
     loading: '正在加载图片',
     loadFailed: '图片加载失败',
     lightbox: { dialog: '图片预览', close: '关闭预览' },
@@ -289,7 +382,7 @@ function ImageToolRow({ block, inspect }: ToolCallViewProps): React.ReactElement
       </div>
       {images.length === 0 ? null : (
         <div className="dsh-imagegen-tool-gallery">
-          <ImageGallery images={images.map((image) => ({ attachment: image.resource.attachment }))} load={loader} align="start" labels={labels} />
+          <ImageGallery images={images.map((image) => ({ attachment: image.attachment }))} load={loader} labels={labels} />
         </div>
       )}
       {open && output !== null ? (

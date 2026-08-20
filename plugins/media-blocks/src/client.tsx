@@ -1,7 +1,6 @@
 /** Client projection for @dfy-plugins/dsh-media-blocks. */
 import React from 'react';
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment';
-import { ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment';
 import {
   RpcId,
   type IApiClient,
@@ -22,7 +21,7 @@ import {
 export const name = 'media-blocks';
 export const inject = ['slots', 'connection'];
 
-const BLOCK_TYPE = 'xiao443-media';
+const BLOCK_TYPE = 'dfy-media';
 const PROMPT_API = '/api/dsh-media-blocks/prompt';
 const RESOURCE_API = '/api/dsh-media-blocks/resource';
 const STYLE_ID = '@dfy-plugins/dsh-media-blocks';
@@ -69,6 +68,16 @@ interface ChatNodeProps {
   t(key: string, values?: Record<string, unknown>): string;
 }
 
+type ImageLoader = (attachment: ImageAttachmentRef) => Promise<string>;
+
+interface ImageLabels {
+  image: string;
+  open: string;
+  loading: string;
+  loadFailed: string;
+  lightbox: { dialog: string; close: string };
+}
+
 interface PromptEndpointResponse {
   result?: RpcResponse<{ accepted: true }>['result'];
   error?: string;
@@ -87,6 +96,15 @@ const STYLES = `
 .dsh-media-user-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; min-height:20px; color:var(--dsw-alias-label-tertiary); font-size:12px; line-height:18px; }
 .dsh-media-user-action { display:inline-flex; width:24px; height:24px; appearance:none; align-items:center; justify-content:center; padding:0; border:0; border-radius:6px; background:transparent; color:inherit; cursor:pointer; }
 .dsh-media-user-action:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); color:var(--dsw-alias-label-secondary, inherit); }
+.dsh-media-gallery { display:flex; max-width:100%; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.dsh-media-thumb { display:grid; width:64px; height:64px; appearance:none; place-items:center; padding:0; overflow:hidden; border:1px solid var(--dsw-alias-border-l2-darkmode-thin, rgba(127,127,127,.2)); border-radius:16px; background:var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); color:var(--dsw-alias-label-secondary, inherit); cursor:zoom-in; }
+.dsh-media-gallery[data-single=true] .dsh-media-thumb { width:min(300px,70vw); height:min(300px,70vw); }
+.dsh-media-thumb img { display:block; width:100%; height:100%; object-fit:cover; }
+.dsh-media-thumb:focus-visible { outline:2px solid var(--dsw-alias-brand-primary, #298df8); outline-offset:2px; }
+.dsh-media-retry { cursor:pointer; font:inherit; }
+.dsh-media-lightbox { position:fixed; z-index:10000; inset:0; display:grid; place-items:center; padding:32px; border:0; background:rgba(0,0,0,.78); cursor:zoom-out; }
+.dsh-media-lightbox img { max-width:calc(100vw - 64px); max-height:calc(100vh - 64px); object-fit:contain; cursor:default; }
+.dsh-media-lightbox-close { position:fixed; top:20px; right:20px; width:36px; height:36px; border:0; border-radius:999px; background:rgba(255,255,255,.16); color:#fff; cursor:pointer; font-size:24px; line-height:1; }
 `;
 
 function installStyles(): () => void {
@@ -176,6 +194,89 @@ function loadReferencedImage(ref: string): Promise<string> {
   return pending;
 }
 
+function MediaThumbnail({ attachment, load, labels, onOpen }: {
+  attachment: ImageAttachmentRef;
+  load: ImageLoader;
+  labels: ImageLabels;
+  onOpen(url: string, alt: string): void;
+}): React.ReactElement {
+  const [attempt, setAttempt] = React.useState(0);
+  const [state, setState] = React.useState<{ url?: string; failed?: boolean }>({});
+  const alt = attachment.name ?? labels.image;
+  React.useEffect(() => {
+    let active = true;
+    setState({});
+    void load(attachment).then(
+      (url) => { if (active) setState({ url }); },
+      () => { if (active) setState({ failed: true }); },
+    );
+    return () => { active = false; };
+  }, [attachment, attempt, load]);
+  if (state.failed === true) {
+    return (
+      <button type="button" className="dsh-media-thumb dsh-media-retry" onClick={() => setAttempt((value) => value + 1)}>
+        {labels.loadFailed}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="dsh-media-thumb"
+      aria-label={alt}
+      title={labels.open}
+      disabled={state.url === undefined}
+      onClick={() => { if (state.url !== undefined) onOpen(state.url, alt); }}
+    >
+      {state.url === undefined ? labels.loading : <img src={state.url} alt={alt} />}
+    </button>
+  );
+}
+
+function MediaGallery({ images, load, labels }: {
+  images: readonly { attachment: ImageAttachmentRef }[];
+  load: ImageLoader;
+  labels: ImageLabels;
+}): React.ReactElement | null {
+  const [open, setOpen] = React.useState<{ url: string; alt: string }>();
+  React.useEffect(() => {
+    if (open === undefined) return undefined;
+    const close = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(undefined);
+    };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [open]);
+  if (images.length === 0) return null;
+  return (
+    <>
+      <div className="dsh-media-gallery" data-single={images.length === 1 ? 'true' : 'false'}>
+        {images.map(({ attachment }) => (
+          <MediaThumbnail
+            key={String(attachment.attachmentId)}
+            attachment={attachment}
+            load={load}
+            labels={labels}
+            onOpen={(url, alt) => setOpen({ url, alt })}
+          />
+        ))}
+      </div>
+      {open !== undefined && (
+        <div
+          className="dsh-media-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={labels.lightbox.dialog}
+          onClick={() => setOpen(undefined)}
+        >
+          <button type="button" className="dsh-media-lightbox-close" aria-label={labels.lightbox.close} onClick={() => setOpen(undefined)}>×</button>
+          <img src={open.url} alt={open.alt} onClick={(event) => event.stopPropagation()} />
+        </div>
+      )}
+    </>
+  );
+}
+
 function UserMediaNode({ node, loadImage, t }: ChatNodeProps): React.ReactElement {
   const [copied, setCopied] = React.useState(false);
   const texts: string[] = [];
@@ -222,7 +323,7 @@ function UserMediaNode({ node, loadImage, t }: ChatNodeProps): React.ReactElemen
   return (
     <div className="dsh-media-user-row" data-time-hover-root>
       <div className="dsh-media-user-stack">
-        <ImageGallery images={images} load={loader} align="end" labels={labels} />
+        <MediaGallery images={images} load={loader} labels={labels} />
         {(text !== '' || rest.length > 0) && (
           <div className="dsh-media-user-bubble">
             <MessageText text={text} />
@@ -283,7 +384,7 @@ export function apply(ctx: ClientCtx): void {
   }, 'dsh-media-blocks: release object URLs');
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
     name: 'conversation.input.left',
-    id: 'xiao443-media-image',
+    id: 'dfy-media-image',
     order: 100,
   }, (props: InputProps) => <MediaImageButton {...props} />));
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({

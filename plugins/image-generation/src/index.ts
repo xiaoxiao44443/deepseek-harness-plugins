@@ -11,12 +11,12 @@ import type { GenericCallView, JsonValue, ToolResult, ToolRunContext } from '@de
 import z from '@deepseek-ai/schemastery';
 import type MediaBlocks from '@dfy-plugins/dsh-media-blocks';
 import {
-  decodeMediaImageRef,
+  createOfficialImageBlock,
+  decodeImageAttachmentRef,
   detectImageMediaType,
-  encodeMediaImageRef,
-  MEDIA_BLOCK_TYPE,
-  type MediaBlock,
-} from '@dfy-plugins/dsh-media-blocks';
+  encodeImageAttachmentRef,
+  serializeImageAttachmentRef,
+} from '@dfy-plugins/image-protocol';
 
 import {
   decodeImageBase64,
@@ -53,6 +53,7 @@ export const Config: z<Config> = z.object({
 
 const SETTINGS_NS = settingsNamespace('dsh-image-generation');
 const STATUS_API = '/api/dsh-image-generation/status';
+const RESOURCE_API = '/api/dsh-image-generation/resource';
 const TOOL_NAME = 'dfy_image_generate';
 const SKILL_NAME = 'dfy-image-generation';
 const VISION_TOOL_NAME = 'dfy_vision_analyze';
@@ -134,7 +135,7 @@ async function readWorkspaceImage(ctx: Context, exec: ToolRunContext, requestedP
 }
 
 async function readAttachmentImage(ctx: Context, exec: ToolRunContext, token: string): Promise<InputImage> {
-  const stored = await ctx.attachments.readImage(decodeMediaImageRef(token.trim()), exec.signal);
+  const stored = await ctx.attachments.readImage(decodeImageAttachmentRef(token.trim()), exec.signal);
   return {
     data: stored.data,
     mediaType: stored.ref.mediaType,
@@ -321,8 +322,8 @@ async function requestImages(
     quality,
     size,
     images: refs.map((ref) => ({
-      ref: encodeMediaImageRef(ref),
-      attachment: { ...ref, attachmentId: String(ref.attachmentId) },
+      ref: encodeImageAttachmentRef(ref),
+      attachment: serializeImageAttachmentRef(ref),
     })),
   };
 }
@@ -338,16 +339,8 @@ function isPresentationMeta(value: unknown): value is ImagePresentationMeta {
 
 function presentGeneratedImages(result: ToolResult) {
   if (result.isError || !isPresentationMeta(result.meta)) return undefined;
-  const content: MediaBlock[] = result.meta.images.map((image) => ({
-    type: MEDIA_BLOCK_TYPE,
-    version: 1,
-    resource: {
-      kind: 'image',
-      ref: image.ref,
-      attachment: image.attachment as ImageAttachmentRef,
-    },
-    presentation: { ...(image.attachment.name === undefined ? {} : { name: image.attachment.name }) },
-  }));
+  const content = result.meta.images.map((image) =>
+    createOfficialImageBlock(image.attachment as ImageAttachmentRef));
   return { card: 'generic' as const, content };
 }
 
@@ -590,7 +583,7 @@ export function apply(ctx: Context, entryConfig: Config): void {
   });
 
   ctx.inject(['webServer'], (webCtx) => {
-    const route: WebRoute = {
+    const statusRoute: WebRoute = {
       kind: 'exact',
       path: STATUS_API,
       async handler(req, res) {
@@ -618,7 +611,28 @@ export function apply(ctx: Context, entryConfig: Config): void {
         sendJson(res, 200, { activation, credential });
       },
     };
-    webCtx.webServer.register(route);
+    const resourceRoute: WebRoute = {
+      kind: 'exact',
+      path: RESOURCE_API,
+      async handler(req, res) {
+        if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+        try {
+          const token = new URL(req.url ?? RESOURCE_API, 'http://localhost').searchParams.get('ref');
+          if (token === null) throw new Error('缺少资源引用');
+          const stored = await ctx.attachments.readImage(decodeImageAttachmentRef(token));
+          res.writeHead(200, {
+            'content-type': stored.ref.mediaType,
+            'content-length': stored.data.byteLength,
+            'cache-control': 'private, max-age=31536000, immutable',
+          });
+          res.end(Buffer.from(stored.data));
+        } catch (error) {
+          sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+        }
+      },
+    };
+    webCtx.webServer.register(statusRoute);
+    webCtx.webServer.register(resourceRoute);
   });
 
   ctx.effect(() => () => {

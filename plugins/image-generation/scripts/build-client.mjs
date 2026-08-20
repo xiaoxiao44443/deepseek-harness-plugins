@@ -14,7 +14,6 @@ await build({
   external: [
     'react',
     'react/jsx-runtime',
-    '@deepseek-ai/dsh-client-ui-attachment',
     '@deepseek-ai/dsh-client-ui-primitives',
     '@deepseek-ai/dsh-client-ui-tool/client',
   ],

@@ -1,14 +1,22 @@
-# DeepSeek Harness Plugins
+# DFY DSH Plugins
 
 个人维护的 DeepSeek Harness 插件集合。仓库使用 pnpm workspace 管理，每个插件都保留独立的 `package.json`、README、版本号、构建和测试脚本。
+
+## 公共库
+
+- [`@dfy-plugins/resource-core`](packages/resource-core)：普通 npm 库，提供版本化不透明资源引用、进程内 provider 注册表和安全文本降级；它不是 Harness 插件。
+- [`@dfy-plugins/image-protocol`](packages/image-protocol)：普通 npm 库，提供 rc.8 官方图片块、Attachment 图片引用、格式识别和图片结果降级；它不是 Harness 插件。
+
+插件可以独立发布并声明这些库为普通依赖。进程内注册表使用稳定的 `Symbol.for` ABI，因此各插件即使各自打包了一份 `resource-core`，仍共享 provider，不需要依赖 media-blocks 的私有协议。
 
 ## 插件
 
 - [`@dfy-plugins/dsh-archive-manager`](plugins/archive-manager)：按项目查看已归档对话，支持取消归档和永久删除。
+- [`@dfy-plugins/dsh-appearance`](plugins/appearance)：在设置侧栏提供独立“外观”页，可在回复完成后折叠过程轨迹并调节对话字号。
 - [`@dfy-plugins/dsh-wallpaper`](plugins/wallpaper)：为 Harness 设置可配置图片背景，支持多种适应模式、模糊、遮罩和界面透明度。
-- [`@dfy-plugins/dsh-media-blocks`](plugins/media-blocks)：提供外置资源引用、官方图片预览和可扩展的多媒体块协议。
+- [`@dfy-plugins/dsh-media-blocks`](plugins/media-blocks)：提供持久聊天媒体块和可扩展的多媒体展示；图片基础协议来自公共库，未来视频、网页等块仍可通过 `MediaResourceMap` 扩展。
 - [`@dfy-plugins/dsh-vision`](plugins/vision)：通过独立视觉路由为文本模型分析图片，主会话只接收文字结果。
-- [`@dfy-plugins/dsh-image-generation`](plugins/image-generation)：通过按需 Skill 和固定工具调用独立图片模型，支持生成、参考图编辑与 Tool 内图片预览。
+- [`@dfy-plugins/dsh-image-generation`](plugins/image-generation)：通过按需 Skill 和固定工具调用独立图片模型，支持官方图片块、参考图编辑与 Tool 内图片预览；media-blocks 为可选增强。
 - [`@dfy-plugins/dsh-codex-bridge`](plugins/codex-bridge)：通过本机鉴权 MCP 将 Harness 会话、工具与 Skills 提供给 Codex；DSH 端与 Codex 伴生插件分别安装。
 
 所有发布包使用 `@dfy-plugins` npm scope；运行时 ID、API、CSS 和持久化目录按各自的兼容性要求命名，
@@ -31,6 +39,12 @@ pnpm build
 dsh plugin --profile web add ./plugins/archive-manager
 ```
 
+本地安装外观插件：
+
+```bash
+dsh plugin --profile web add ./plugins/appearance
+```
+
 本地安装壁纸插件：
 
 ```bash
@@ -47,7 +61,6 @@ dsh plugin --profile web add ./plugins/vision
 本地安装图像生成插件：
 
 ```bash
-dsh plugin --profile web add ./plugins/media-blocks
 dsh plugin --profile web add ./plugins/image-generation
 ```
 
@@ -60,7 +73,7 @@ dsh plugin --profile web add ./plugins/codex-bridge
 将仓库添加为 Codex Plugin Marketplace：
 
 ```bash
-codex plugin marketplace add xiaoxiao44443/deepseek-harness-plugins
+codex plugin marketplace add xiaoxiao44443/dfy-dsh-plugins
 ```
 
-然后在 Codex 桌面端的插件列表中打开 **Deepseek Harness Plugins**，安装 **DeepSeek Harness**。安装或更新后请新建 Codex 任务；已经打开的任务不会热加载插件和 MCP。
+然后在 Codex 桌面端的插件列表中打开 **DFY DSH Plugins**，安装 **DFY DSH**。安装或更新后请新建 Codex 任务；已经打开的任务不会热加载插件和 MCP。
