@@ -9,6 +9,7 @@
 - [`@dfy-plugins/dsh-media-blocks`](plugins/media-blocks)：提供外置资源引用、官方图片预览和可扩展的多媒体块协议。
 - [`@dfy-plugins/dsh-vision`](plugins/vision)：通过独立视觉路由为文本模型分析图片，主会话只接收文字结果。
 - [`@dfy-plugins/dsh-image-generation`](plugins/image-generation)：通过按需 Skill 和固定工具调用独立图片模型，支持生成、参考图编辑与 Tool 内图片预览。
+- [`@dfy-plugins/dsh-codex-bridge`](plugins/codex-bridge)：通过本机鉴权 MCP 将 Harness 会话、工具与 Skills 提供给 Codex；DSH 端与 Codex 伴生插件分别安装。
 
 所有发布包使用 `@dfy-plugins` npm scope；运行时 ID、API、CSS 和持久化目录按各自的兼容性要求命名，
 不会随包名做全局替换。新增或修改插件前请先阅读：
@@ -49,3 +50,17 @@ dsh plugin --profile web add ./plugins/vision
 dsh plugin --profile web add ./plugins/media-blocks
 dsh plugin --profile web add ./plugins/image-generation
 ```
+
+本地安装 Codex Bridge 的 DSH 端：
+
+```bash
+dsh plugin --profile web add ./plugins/codex-bridge
+```
+
+将仓库添加为 Codex Plugin Marketplace：
+
+```bash
+codex plugin marketplace add xiaoxiao44443/deepseek-harness-plugins
+```
+
+然后在 Codex 桌面端的插件列表中打开 **Deepseek Harness Plugins**，安装 **DeepSeek Harness**。安装或更新后请新建 Codex 任务；已经打开的任务不会热加载插件和 MCP。
