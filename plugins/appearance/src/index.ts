@@ -10,12 +10,14 @@ export interface Config {
   collapseCompletedProcess?: boolean;
   chatFontSize?: number;
   chatLineHeightRatio?: number;
+  processLineHeightRatio?: number;
 }
 
 export const Config: z<Config> = z.object({
   collapseCompletedProcess: z.boolean().default(true),
   chatFontSize: z.number().step(1).min(13).max(20).default(16),
   chatLineHeightRatio: z.number().step(0.05).min(1.35).max(1.9).default(1.65),
+  processLineHeightRatio: z.number().step(0.05).min(1).max(1.9).default(1.4),
 });
 
 const SETTINGS_NS = settingsNamespace('dsh-appearance');

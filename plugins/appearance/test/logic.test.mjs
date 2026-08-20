@@ -15,6 +15,9 @@ test('appearance settings default and clamp the chat font size', () => {
   assert.equal(normalizeAppearanceSettings({ chatLineHeightRatio: 9 }).chatLineHeightRatio, 1.9);
   assert.equal(normalizeAppearanceSettings({ chatLineHeightRatio: 1 }).chatLineHeightRatio, 1.35);
   assert.equal(normalizeAppearanceSettings({ chatLineHeightRatio: 1.678 }).chatLineHeightRatio, 1.68);
+  assert.equal(normalizeAppearanceSettings({ processLineHeightRatio: 9 }).processLineHeightRatio, 1.9);
+  assert.equal(normalizeAppearanceSettings({ processLineHeightRatio: 0.5 }).processLineHeightRatio, 1);
+  assert.equal(normalizeAppearanceSettings({ processLineHeightRatio: 1.234 }).processLineHeightRatio, 1.23);
   assert.equal(normalizeAppearanceSettings({ collapseCompletedProcess: false }).collapseCompletedProcess, false);
 });
 

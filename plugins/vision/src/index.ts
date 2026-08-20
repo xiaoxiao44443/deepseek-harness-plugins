@@ -19,6 +19,7 @@ import {
 import { createOfficialImageBlock, detectImageMediaType } from '@dfy-plugins/image-protocol';
 
 import {
+  collectVisionImageSources,
   decodeImageRef,
   encodeImageRef,
   imageMediaTypeForPath,
@@ -30,6 +31,7 @@ import {
   VISION_SYSTEM_PROMPT,
   VISION_TOOL_DESCRIPTION,
   type VisionUnavailableState,
+  type VisionImageSourceInput,
   type VisionResultValue,
 } from './logic.js';
 
@@ -235,35 +237,31 @@ export async function readResourceImage(
   return { label: `resource:${reference.provider}/${reference.id}`, ref };
 }
 
-async function analyzeImage(
+async function analyzeImages(
   ctx: Context,
   exec: ToolRunContext,
   config: ResolvedConfig,
-  source: { filePath?: string; imageRef?: string; resourceRef?: string },
+  source: VisionImageSourceInput,
   question: string,
 ): Promise<VisionResultValue> {
+  const prompt = question.trim();
+  if (prompt.length === 0) throw new Error('question must be a non-empty string');
+  const sources = collectVisionImageSources(source, ctx.attachments.imageLimits.maxImagesPerMessage);
   const modelInfo = await ctx.llm.resolveModelInfo(config.provider, config.model, exec.signal);
   const unsupported = visionModelUnsupported(config.provider, config.model, modelInfo.inputModalities);
   if (unsupported !== undefined) throw new Error(unsupported.message);
-  const filePath = source.filePath?.trim() ?? '';
-  const imageRef = source.imageRef?.trim() ?? '';
-  const resourceRef = source.resourceRef?.trim() ?? '';
-  if ([filePath, imageRef, resourceRef].filter((value) => value.length > 0).length !== 1) {
-    throw new Error('provide exactly one of file_path, image_ref, or resource_ref');
+  const images: ResolvedToolImage[] = [];
+  for (const item of sources) {
+    if (item.kind === 'file') images.push(await saveToolImage(ctx, exec, item.value));
+    else if (item.kind === 'attachment') images.push(await readReferencedImage(ctx, exec, item.value));
+    else images.push(await readResourceImage(ctx, exec, item.value));
   }
-  const image = filePath.length > 0
-    ? await saveToolImage(ctx, exec, filePath)
-    : imageRef.length > 0
-      ? await readReferencedImage(ctx, exec, imageRef)
-      : await readResourceImage(ctx, exec, resourceRef);
-  const prompt = question.trim();
-  if (prompt.length === 0) throw new Error('question must be a non-empty string');
 
   const message = createUserMessage({
     source: { kind: 'plugin', plugin: '@dfy-plugins/dsh-vision' },
     content: [
       { type: 'text', text: prompt },
-      { type: 'image', attachment: image.ref },
+      ...images.map((image) => ({ type: 'image' as const, attachment: image.ref })),
     ],
   });
   const assembler = new BlockAssembler();
@@ -285,43 +283,55 @@ async function analyzeImage(
   const analysis = textFromBlocks(assembler.blocks());
   if (analysis.length === 0) throw new Error('visual model returned no text analysis');
   return {
-    path: image.label,
-    imageRef: encodeImageRef(image.ref),
     provider: config.provider,
     model: config.model,
     analysis,
     finishReason: finish.kind,
-    image: {
-      mediaType: image.ref.mediaType,
-      bytes: image.ref.bytes,
-      width: image.ref.width,
-      height: image.ref.height,
-    },
+    images: images.map((image) => ({
+      path: image.label,
+      imageRef: encodeImageRef(image.ref),
+      image: {
+        mediaType: image.ref.mediaType,
+        bytes: image.ref.bytes,
+        width: image.ref.width,
+        height: image.ref.height,
+      },
+    })),
   };
 }
 
-interface VisionPresentationMeta {
+interface LegacyVisionPresentationMeta {
   version: 1;
   imageRef: string;
 }
 
-function visionPresentationMeta(value: VisionResultValue): JsonValue {
-  return { version: 1, imageRef: value.imageRef };
+interface VisionPresentationMeta {
+  version: 2;
+  imageRefs: string[];
 }
 
-function isVisionPresentationMeta(value: unknown): value is VisionPresentationMeta {
+function visionPresentationMeta(value: VisionResultValue): JsonValue {
+  return { version: 2, imageRefs: value.images.map((image) => image.imageRef) };
+}
+
+function isVisionPresentationMeta(value: unknown): value is LegacyVisionPresentationMeta | VisionPresentationMeta {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const meta = value as Partial<VisionPresentationMeta>;
-  return meta.version === 1 && typeof meta.imageRef === 'string';
+  const meta = value as { version?: unknown; imageRef?: unknown; imageRefs?: unknown };
+  if (meta.version === 1) return typeof meta.imageRef === 'string';
+  return meta.version === 2
+    && Array.isArray(meta.imageRefs)
+    && meta.imageRefs.length > 0
+    && meta.imageRefs.every((item: unknown) => typeof item === 'string');
 }
 
 function presentVisionResult(result: ToolResult) {
   if (result.isError || !isVisionPresentationMeta(result.meta)) return undefined;
   try {
-    const attachment = decodeImageRef(result.meta.imageRef);
+    const imageRefs = result.meta.version === 1 ? [result.meta.imageRef] : result.meta.imageRefs;
+    const attachments = imageRefs.map((imageRef) => decodeImageRef(imageRef));
     return {
       card: 'generic' as const,
-      content: [...result.content, createOfficialImageBlock(attachment)],
+      content: [...result.content, ...attachments.map((attachment) => createOfficialImageBlock(attachment))],
     };
   } catch {
     // A stale or malformed presentation reference must not replace the readable
@@ -337,15 +347,30 @@ function createVisionTool(ctx: Context, current: () => Config) {
     parameters: {
       file_path: {
         type: 'string',
-        description: 'Image path, resolved relative to the current session workspace. Use exactly one image source.',
+        description: 'Single workspace image path retained for compatibility. Prefer file_paths for a batch.',
+      },
+      file_paths: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Workspace image paths to analyze together in one visual-model call.',
       },
       image_ref: {
         type: 'string',
-        description: 'Opaque Attachment token copied from inside <image_ref>...</image_ref>, without XML quotes or tags. Use exactly one image source.',
+        description: 'Single opaque Attachment token retained for compatibility. Prefer image_refs for a batch.',
+      },
+      image_refs: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Opaque Attachment tokens copied from all relevant <image_ref> values and analyzed together in one call.',
       },
       resource_ref: {
         type: 'string',
-        description: 'Opaque resourceRef returned by the built-in browser screenshot API. Use exactly one image source.',
+        description: 'Single opaque browser resourceRef retained for compatibility. Prefer resource_refs for a batch.',
+      },
+      resource_refs: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Opaque browser resourceRef values to analyze together in one visual-model call.',
       },
       question: {
         type: 'string',
@@ -358,21 +383,31 @@ function createVisionTool(ctx: Context, current: () => Config) {
         type: 'object',
         additionalProperties: false,
         properties: {
-          path: { type: 'string', required: true },
-          imageRef: { type: 'string', required: true },
           provider: { type: 'string', required: true },
           model: { type: 'string', required: true },
           analysis: { type: 'string', required: true },
           finishReason: { type: 'string', required: true },
-          image: {
-            type: 'object',
+          images: {
+            type: 'array',
             required: true,
-            additionalProperties: false,
-            properties: {
-              mediaType: { type: 'string', required: true },
-              bytes: { type: 'integer', required: true },
-              width: { type: 'integer', required: true },
-              height: { type: 'integer', required: true },
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                path: { type: 'string', required: true },
+                imageRef: { type: 'string', required: true },
+                image: {
+                  type: 'object',
+                  required: true,
+                  additionalProperties: false,
+                  properties: {
+                    mediaType: { type: 'string', required: true },
+                    bytes: { type: 'integer', required: true },
+                    width: { type: 'integer', required: true },
+                    height: { type: 'integer', required: true },
+                  },
+                },
+              },
             },
           },
         },
@@ -381,17 +416,24 @@ function createVisionTool(ctx: Context, current: () => Config) {
       presentationMeta: (_args, value) => visionPresentationMeta(value as VisionResultValue),
     },
     isConcurrencySafe: () => true,
-    execute: async (args, exec) => analyzeImage(ctx, exec, resolvedConfig(current()), {
+    execute: async (args, exec) => analyzeImages(ctx, exec, resolvedConfig(current()), {
       ...(args.file_path === undefined ? {} : { filePath: args.file_path }),
+      ...(args.file_paths === undefined ? {} : { filePaths: args.file_paths }),
       ...(args.image_ref === undefined ? {} : { imageRef: args.image_ref }),
+      ...(args.image_refs === undefined ? {} : { imageRefs: args.image_refs }),
       ...(args.resource_ref === undefined ? {} : { resourceRef: args.resource_ref }),
+      ...(args.resource_refs === undefined ? {} : { resourceRefs: args.resource_refs }),
     }, args.question),
     presentCall(args): GenericCallView {
+      const locations = [
+        ...(args.file_path === undefined ? [] : [{ path: args.file_path }]),
+        ...(args.file_paths ?? []).map((path) => ({ path })),
+      ];
       return {
         card: 'generic',
         title: 'DFY VISION ANALYZE',
         kind: 'read',
-        ...(args.file_path === undefined ? {} : { locations: [{ path: args.file_path }] }),
+        ...(locations.length === 0 ? {} : { locations }),
       };
     },
     presentResult: (_args, result) => presentVisionResult(result),
@@ -559,7 +601,7 @@ export function apply(ctx: Context, entryConfig: Config): void {
       const name = block.presentation?.name ?? block.resource.attachment.name ?? 'image';
       return [{
         type: 'text',
-        text: `<vision_image name="${escapeXmlAttribute(name)}"><image_ref>${block.resource.ref}</image_ref>The image pixels are stored outside this text context. Before analyzing this image, load the ${SKILL_NAME} Skill and follow its instructions for this image reference, then answer the user's request from the tool result.</vision_image>`,
+        text: `<vision_image name="${escapeXmlAttribute(name)}"><image_ref>${block.resource.ref}</image_ref>The image pixels are stored outside this text context. Before visual analysis, load the ${SKILL_NAME} Skill. If the prompt contains multiple vision_image blocks, collect all relevant image_ref values into one image_refs array and call the vision tool once, then answer the user's request from that combined result.</vision_image>`,
       }];
     }, {
       prepare: async () => {

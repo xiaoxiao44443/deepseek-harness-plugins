@@ -4,17 +4,22 @@ export const MAX_CHAT_FONT_SIZE = 20;
 export const DEFAULT_CHAT_LINE_HEIGHT_RATIO = 1.65;
 export const MIN_CHAT_LINE_HEIGHT_RATIO = 1.35;
 export const MAX_CHAT_LINE_HEIGHT_RATIO = 1.9;
+export const DEFAULT_PROCESS_LINE_HEIGHT_RATIO = 1.4;
+export const MIN_PROCESS_LINE_HEIGHT_RATIO = 1;
+export const MAX_PROCESS_LINE_HEIGHT_RATIO = 1.9;
 
 export interface AppearanceSettings {
   collapseCompletedProcess: boolean;
   chatFontSize: number;
   chatLineHeightRatio: number;
+  processLineHeightRatio: number;
 }
 
 export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   collapseCompletedProcess: true,
   chatFontSize: DEFAULT_CHAT_FONT_SIZE,
   chatLineHeightRatio: DEFAULT_CHAT_LINE_HEIGHT_RATIO,
+  processLineHeightRatio: DEFAULT_PROCESS_LINE_HEIGHT_RATIO,
 };
 
 export function normalizeAppearanceSettings(value: Partial<AppearanceSettings> | undefined): AppearanceSettings {
@@ -29,10 +34,18 @@ export function normalizeAppearanceSettings(value: Partial<AppearanceSettings> |
       Math.max(MIN_CHAT_LINE_HEIGHT_RATIO, Math.round(requestedLineHeight * 100) / 100),
     )
     : DEFAULT_CHAT_LINE_HEIGHT_RATIO;
+  const requestedProcessLineHeight = value?.processLineHeightRatio;
+  const processLineHeightRatio = typeof requestedProcessLineHeight === 'number' && Number.isFinite(requestedProcessLineHeight)
+    ? Math.min(
+      MAX_PROCESS_LINE_HEIGHT_RATIO,
+      Math.max(MIN_PROCESS_LINE_HEIGHT_RATIO, Math.round(requestedProcessLineHeight * 100) / 100),
+    )
+    : DEFAULT_PROCESS_LINE_HEIGHT_RATIO;
   return {
     collapseCompletedProcess: value?.collapseCompletedProcess ?? true,
     chatFontSize,
     chatLineHeightRatio,
+    processLineHeightRatio,
   };
 }
 

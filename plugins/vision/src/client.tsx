@@ -154,10 +154,10 @@ const STYLES = `
 .dsh-vision-draft-rail { box-sizing: border-box; min-width: 0; padding: 12px; border: 1px solid var(--dsw-alias-border-l2-darkmode-thin, rgba(127,127,127,.18)); border-radius: 18px; background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-3, rgba(255,255,255,.92))); box-shadow: var(--dsw-shadow-lv1, 0 2px 8px rgba(0,0,0,.06)); }
 .dsh-vision-draft-rail[data-uploading] { opacity: .72; }
 .dsh-vision-tool-card { display: flex; flex-direction: column; }
-.dsh-vision-tool-row { position: relative; display: flex; min-width: 0; height: 24px; align-items: center; overflow: hidden; }
-.dsh-vision-tool-inspect-target { display: inline-flex; min-width: 0; height: 24px; appearance: none; align-items: center; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+.dsh-vision-tool-row { position: relative; display: flex; min-width: 0; min-height: 1lh; align-items: center; overflow: hidden; }
+.dsh-vision-tool-inspect-target { display: inline-flex; min-width: 0; min-height: 1lh; flex: none; appearance: none; align-items: center; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
 button.dsh-vision-tool-inspect-target { cursor: pointer; }
-.dsh-vision-tool-summary-toggle { display: flex; min-width: 0; max-width: 100%; height: 24px; flex: 0 1 auto; appearance: none; align-items: center; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.dsh-vision-tool-summary-toggle { display: flex; min-width: 0; max-width: 100%; min-height: 1lh; flex: 0 1 auto; appearance: none; align-items: center; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
 .dsh-vision-tool-summary-toggle:hover .dsh-vision-tool-summary { color: var(--dsw-alias-label-primary); }
 .dsh-vision-tool-inspect-target:focus-visible, .dsh-vision-tool-summary-toggle:focus-visible { border-radius: 4px; outline: 2px solid var(--dsw-alias-brand-primary, #298df8); outline-offset: -1px; }
 .dsh-vision-tool-card[data-state='running'] .dsh-vision-tool-row::after { position: absolute; inset: 0 auto 0 0; width: 300px; animation: dsh-vision-tool-sweep 2.6s ease-out infinite; background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%); content: ''; pointer-events: none; }
@@ -175,10 +175,11 @@ button.dsh-vision-tool-inspect-target { cursor: pointer; }
 .dsh-vision-tool-io-text { min-width: 0; margin: 0; color: var(--dsw-alias-label-secondary); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .dsh-vision-tool-io-text[data-error] { color: var(--dsw-alias-state-error-primary); }
 .dsh-vision-tool-io-divider { height: 1px; flex: none; background: var(--dsw-alias-border-l2); }
-.dsh-vision-tool-preview { display: flex; width: min(320px, calc(100% - 22px)); height: 200px; align-items: center; justify-content: center; margin: 8px 0 4px 22px; padding: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2-darkmode-thin, rgba(127,127,127,.2)); border-radius: 14px; background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.08)); color: var(--dsw-alias-label-tertiary); cursor: zoom-in; font: inherit; font-size: 12px; }
+.dsh-vision-tool-previews { display: flex; max-width: calc(100% - 22px); flex-flow: row wrap; align-items: flex-start; gap: 8px; margin: 8px 0 4px 22px; }
+.dsh-vision-tool-preview { display: flex; width: clamp(84px, 12vw, 112px); height: clamp(84px, 12vw, 112px); flex: 0 0 clamp(84px, 12vw, 112px); align-items: center; justify-content: center; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 12px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: zoom-in; font: inherit; font-size: 11px; }
 .dsh-vision-tool-preview:disabled { cursor: default; }
 .dsh-vision-tool-preview:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #298df8); outline-offset: 2px; }
-.dsh-vision-tool-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.dsh-vision-tool-preview img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; }
 .dsh-vision-lightbox { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 32px; background: rgba(0,0,0,.78); cursor: zoom-out; }
 .dsh-vision-lightbox img { max-width: calc(100vw - 64px); max-height: calc(100vh - 64px); object-fit: contain; cursor: default; }
 .dsh-vision-lightbox-close { position: fixed; top: 20px; right: 20px; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; cursor: pointer; font-size: 24px; line-height: 1; }
@@ -222,6 +223,27 @@ function encodeImageRef(ref: ImageAttachmentRef): string {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
+function decodeImageRefForPreview(token: string): ImageAttachmentRef | undefined {
+  const value = token.trim();
+  if (value.length === 0 || value.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
+  try {
+    const base64 = value.replaceAll('-', '+').replaceAll('_', '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+    const ref = parsed as Record<string, unknown>;
+    if (typeof ref.attachmentId !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(ref.attachmentId)) return undefined;
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(String(ref.mediaType))) return undefined;
+    if (![ref.bytes, ref.width, ref.height].every((item) => typeof item === 'number' && Number.isSafeInteger(item) && item > 0)) return undefined;
+    if (ref.name !== undefined && (typeof ref.name !== 'string' || ref.name.length > 255)) return undefined;
+    if (Object.keys(ref).some((key) => !['attachmentId', 'mediaType', 'bytes', 'width', 'height', 'name'].includes(key))) return undefined;
+    return ref as unknown as ImageAttachmentRef;
+  } catch {
+    return undefined;
+  }
+}
+
 function loadReferencedImage(attachment: ImageAttachmentRef): Promise<string> {
   const ref = encodeImageRef(attachment);
   const cached = resourceUrls.get(ref);
@@ -242,9 +264,13 @@ function isImageBlock(value: unknown): value is ImageBlock {
   return block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null;
 }
 
-function resultImage(block: ToolCallViewProps['block']): ImageAttachmentRef | undefined {
-  if (!('kind' in block) || block.resultView?.card !== 'generic') return undefined;
-  return block.resultView.content?.find(isImageBlock)?.attachment;
+function resultImages(block: ToolCallViewProps['block']): ImageAttachmentRef[] {
+  if (!('kind' in block) || block.resultView?.card !== 'generic') return [];
+  const images: ImageAttachmentRef[] = [];
+  for (const item of (block.resultView.content ?? []) as unknown[]) {
+    if (isImageBlock(item)) images.push(item.attachment);
+  }
+  return images;
 }
 
 function VisionImagePreview({ attachment }: { attachment: ImageAttachmentRef }): React.ReactElement {
@@ -252,6 +278,7 @@ function VisionImagePreview({ attachment }: { attachment: ImageAttachmentRef }):
   const [state, setState] = React.useState<{ url?: string; failed?: boolean }>({});
   const [lightboxOpen, setLightboxOpen] = React.useState(false);
   const alt = attachment.name ?? '视觉分析所查看的图片';
+  const attachmentKey = encodeImageRef(attachment);
   React.useEffect(() => {
     let active = true;
     setState({});
@@ -260,7 +287,7 @@ function VisionImagePreview({ attachment }: { attachment: ImageAttachmentRef }):
       () => { if (active) setState({ failed: true }); },
     );
     return () => { active = false; };
-  }, [attachment, attempt]);
+  }, [attachmentKey, attempt]);
   React.useEffect(() => {
     if (!lightboxOpen) return undefined;
     const close = (event: KeyboardEvent): void => { if (event.key === 'Escape') setLightboxOpen(false); };
@@ -310,16 +337,55 @@ function toolOutput(block: ToolCallViewProps['block']): string | null {
   return parts.join('\n') || null;
 }
 
-function visionQuestion(block: ToolCallViewProps['block']): string {
+function requestedImageCount(block: ToolCallViewProps['block']): number {
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '';
   try {
     const parsed = JSON.parse(argsRaw) as unknown;
-    if (typeof parsed === 'object' && parsed !== null) {
-      const question = (parsed as Record<string, unknown>).question;
-      if (typeof question === 'string' && question.trim().length > 0) return firstLine(question.trim());
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return 0;
+    const args = parsed as Record<string, unknown>;
+    const sources = new Set<string>();
+    for (const [singular, plural] of [
+      ['file_path', 'file_paths'],
+      ['image_ref', 'image_refs'],
+      ['resource_ref', 'resource_refs'],
+    ] as const) {
+      const one = args[singular];
+      if (typeof one === 'string' && one.trim().length > 0) sources.add(`${singular}:${one.trim()}`);
+      const many = args[plural];
+      if (!Array.isArray(many)) continue;
+      for (const value of many) {
+        if (typeof value === 'string' && value.trim().length > 0) sources.add(`${singular}:${value.trim()}`);
+      }
     }
-  } catch {}
-  return '分析图片';
+    return sources.size;
+  } catch {
+    return 0;
+  }
+}
+
+function requestedImageAttachments(block: ToolCallViewProps['block']): ImageAttachmentRef[] {
+  const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? '';
+  try {
+    const parsed = JSON.parse(argsRaw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+    const args = parsed as Record<string, unknown>;
+    const tokens = [
+      ...(typeof args.image_ref === 'string' ? [args.image_ref] : []),
+      ...(Array.isArray(args.image_refs) ? args.image_refs.filter((value): value is string => typeof value === 'string') : []),
+    ];
+    const attachments: ImageAttachmentRef[] = [];
+    const seen = new Set<string>();
+    for (const token of tokens) {
+      const value = token.trim();
+      if (seen.has(value)) continue;
+      seen.add(value);
+      const attachment = decodeImageRefForPreview(value);
+      if (attachment !== undefined) attachments.push(attachment);
+    }
+    return attachments;
+  } catch {
+    return [];
+  }
 }
 
 function toolInput(block: ToolCallViewProps['block']): string | null {
@@ -336,25 +402,32 @@ function VisionToolRow({ block }: ToolCallViewProps): React.ReactElement {
   const settled = 'kind' in block;
   const input = toolInput(block);
   const output = toolOutput(block);
-  const image = resultImage(block);
+  const settledImages = resultImages(block);
+  const pendingImages = requestedImageAttachments(block);
+  const images = settledImages.length > 0 ? settledImages : pendingImages;
+  const requestedImages = requestedImageCount(block);
   const state = !settled ? 'running' : block.error?.code === 'interrupted' ? 'stopped' : block.isError ? 'error' : 'ok';
   const summary = state === 'error' && output !== null
     ? firstLine(output)
-    : image === undefined
-      ? visionQuestion(block)
-      : `已查看 1 张图片 · ${String(image.width)} × ${String(image.height)}`;
-  const imageExpandable = image !== undefined;
+    : state === 'running'
+      ? requestedImages > 0 ? `正在查看 ${String(requestedImages)} 张图片` : '正在查看图片'
+      : images.length > 0
+        ? `已查看 ${String(images.length)} 张图片`
+        : state === 'stopped'
+          ? requestedImages > 0 ? `已停止查看 ${String(requestedImages)} 张图片` : '已停止查看图片'
+          : '查看图片';
+  const imageExpandable = images.length > 0;
   const detailsExpandable = input !== null || output !== null;
   const [imageOpen, setImageOpen] = React.useState(false);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
-  const initializedImageRef = React.useRef<string | undefined>(undefined);
-  const imageKey = image === undefined
+  const activeImageKeyRef = React.useRef<string | undefined>(undefined);
+  const imageKey = images.length === 0
     ? undefined
-    : `${String(image.attachmentId)}:${String(image.bytes)}:${String(image.width)}x${String(image.height)}`;
+    : images.map((image) => `${String(image.attachmentId)}:${String(image.bytes)}:${String(image.width)}x${String(image.height)}`).join('|');
   React.useEffect(() => {
-    if (imageKey === undefined || initializedImageRef.current === imageKey) return;
-    initializedImageRef.current = imageKey;
-    setImageOpen(true);
+    if (activeImageKeyRef.current === imageKey) return;
+    activeImageKeyRef.current = imageKey;
+    setImageOpen(false);
   }, [imageKey]);
   const imageExpanded = imageOpen && imageExpandable;
   const detailsExpanded = detailsOpen && detailsExpandable;
@@ -399,7 +472,13 @@ function VisionToolRow({ block }: ToolCallViewProps): React.ReactElement {
           <span className="dsh-vision-tool-summary" data-error={state === 'error' || undefined}>{summary}</span>
         )}
       </div>
-      {!imageExpanded || image === undefined ? null : <VisionImagePreview attachment={image} />}
+      {!imageExpanded ? null : (
+        <div className="dsh-vision-tool-previews">
+          {images.map((image) => (
+            <VisionImagePreview key={String(image.attachmentId)} attachment={image} />
+          ))}
+        </div>
+      )}
       {!detailsExpanded ? null : (
         <div className="dsh-vision-tool-io-card">
           {input === null ? null : (

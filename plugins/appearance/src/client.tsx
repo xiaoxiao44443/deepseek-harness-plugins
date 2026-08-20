@@ -5,10 +5,13 @@ import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation
 import {
   DEFAULT_CHAT_FONT_SIZE,
   DEFAULT_CHAT_LINE_HEIGHT_RATIO,
+  DEFAULT_PROCESS_LINE_HEIGHT_RATIO,
   MAX_CHAT_FONT_SIZE,
   MAX_CHAT_LINE_HEIGHT_RATIO,
+  MAX_PROCESS_LINE_HEIGHT_RATIO,
   MIN_CHAT_FONT_SIZE,
   MIN_CHAT_LINE_HEIGHT_RATIO,
+  MIN_PROCESS_LINE_HEIGHT_RATIO,
   normalizeAppearanceSettings,
   planCompletedProcessSegments,
   type AppearanceSettings,
@@ -59,13 +62,14 @@ const BODY_ATTRIBUTE = 'data-dsh-appearance';
 const SETTINGS_NAMESPACE = 'dsh-appearance';
 const MEDIA_CONTENT = 'img, video, audio';
 const IMAGE_PROCESS_CONTENT = 'img, [data-tool="dfy_vision_analyze"]';
+const TYPOGRAPHY_SAVE_DEBOUNCE_MS = 250;
 
 const STYLES = `
 body[${BODY_ATTRIBUTE}] {
   --dsh-appearance-chat-font-size: 16px;
   --dsh-appearance-chat-line-height: 28px;
   --dsh-appearance-process-font-size: 14px;
-  --dsh-appearance-process-line-height: 24px;
+  --dsh-appearance-process-line-height: 20px;
 }
 body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='assistant-step'] > div,
 body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='assistant-step'] > div > div > :not([data-variant='think']) {
@@ -77,9 +81,8 @@ body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='assistant-step']
   font-size: var(--dsh-appearance-chat-font-size) !important;
   line-height: var(--dsh-appearance-chat-line-height) !important;
 }
-body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='user'] .dsh-media-user-bubble,
-body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='user'] [data-time-hover-root]
-  > div:first-child > div:has(> [class*='_text_'], > [data-ref-chip]) {
+body[${BODY_ATTRIBUTE}] :is([data-chat-flow-kind='user'], [data-chat-flow-kind='steering'])
+  :is(.dsh-media-user-bubble, [data-time-hover-root] > div:first-child > [class*='_bubble']) {
   font-size: var(--dsh-appearance-chat-font-size) !important;
   line-height: var(--dsh-appearance-chat-line-height) !important;
 }
@@ -96,6 +99,17 @@ body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='command'] :is(button, span) {
   font-size: var(--dsh-appearance-process-font-size) !important;
   line-height: var(--dsh-appearance-process-line-height) !important;
 }
+body[${BODY_ATTRIBUTE}] :is(
+  [data-chat-flow-kind='context'] [data-disclosure-row],
+  [data-chat-flow-kind='assistant-step'] [data-variant='think'],
+  [data-chat-flow-kind='assistant-step'] [data-variant='think'] [data-disclosure-row],
+  [data-chat-flow-kind='tool-call'] [data-tool],
+  [data-chat-flow-kind='tool-call'] [data-tool] > [role='button'],
+  [data-chat-flow-kind='command'] [data-disclosure-row]
+) {
+  height: auto !important;
+  min-height: var(--dsh-appearance-process-line-height) !important;
+}
 [data-dsh-appearance-process][data-dsh-appearance-collapsed='true'] {
   display: none !important;
 }
@@ -109,7 +123,7 @@ body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='command'] :is(button, span) {
   width: fit-content;
   max-width: 100%;
   min-width: 0;
-  height: 26px;
+  min-height: var(--dsh-appearance-process-line-height, 20px);
   appearance: none;
   align-items: center;
   gap: 6px;
@@ -130,6 +144,7 @@ body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='command'] :is(button, span) {
 .dsh-appearance-process-chevron { width: 14px; height: 14px; flex: none; margin-left: 1px; opacity: 0; transform: rotate(-90deg); transition: opacity .12s ease, transform .14s ease; }
 .dsh-appearance-process-toggle:hover .dsh-appearance-process-chevron { opacity: 1; }
 .dsh-appearance-process-toggle[aria-expanded='true'] .dsh-appearance-process-chevron { opacity: 1; transform: rotate(0); }
+.dsh-appearance-reset { margin-top: 16px; }
 .dsh-appearance-root { padding: 0 4px 24px; color: inherit; }
 .dsh-appearance-heading { margin: 0 0 6px; font-size: 17px; font-weight: 650; line-height: 24px; }
 .dsh-appearance-intro { margin: 0 0 20px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
@@ -179,10 +194,10 @@ function readSettings(scope: SettingsScope<Partial<AppearanceSettings>>): Appear
   return normalizeAppearanceSettings(scope.getSnapshot().value);
 }
 
-function applyTypography(fontSize: number, lineHeightRatio: number): void {
+function applyTypography(fontSize: number, lineHeightRatio: number, processLineHeightRatio: number): void {
   const processSize = Math.max(13, fontSize - 2);
   const chatLineHeight = Math.round(fontSize * lineHeightRatio);
-  const processLineHeight = Math.round(processSize * lineHeightRatio);
+  const processLineHeight = Math.round(processSize * processLineHeightRatio);
   document.body.style.setProperty('--dsh-appearance-chat-font-size', `${String(fontSize)}px`);
   document.body.style.setProperty('--dsh-appearance-chat-line-height', `${String(chatLineHeight)}px`);
   document.body.style.setProperty('--dsh-appearance-process-font-size', `${String(processSize)}px`);
@@ -193,7 +208,7 @@ function installPreferences(scope: SettingsScope<Partial<AppearanceSettings>>): 
   const update = (): void => {
     document.body.setAttribute(BODY_ATTRIBUTE, '');
     const settings = readSettings(scope);
-    applyTypography(settings.chatFontSize, settings.chatLineHeightRatio);
+    applyTypography(settings.chatFontSize, settings.chatLineHeightRatio, settings.processLineHeightRatio);
   };
   update();
   const unsubscribe = scope.subscribe(update);
@@ -350,6 +365,53 @@ function ProcessDisclosure({ matched }: ProcessDisclosureProps): React.ReactElem
   return <div ref={anchorRef} className="dsh-appearance-process-anchor" aria-hidden />;
 }
 
+interface DebouncedSettingSave {
+  schedule(value: number): void;
+  flush(): void;
+  cancel(): void;
+}
+
+function useDebouncedSettingSave(
+  scope: SettingsScope<Partial<AppearanceSettings>>,
+  field: 'chatFontSize' | 'chatLineHeightRatio' | 'processLineHeightRatio',
+  setError: React.Dispatch<React.SetStateAction<string | null>>,
+): DebouncedSettingSave {
+  const timerRef = React.useRef<number | undefined>(undefined);
+  const pendingValueRef = React.useRef<number | undefined>(undefined);
+
+  const cancel = React.useCallback((): void => {
+    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+    timerRef.current = undefined;
+    pendingValueRef.current = undefined;
+  }, []);
+
+  const commit = React.useCallback((): void => {
+    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+    timerRef.current = undefined;
+    const value = pendingValueRef.current;
+    pendingValueRef.current = undefined;
+    if (value === undefined) return;
+    void scope.set(field, value).catch((cause: unknown) => setError(String(cause)));
+  }, [field, scope, setError]);
+
+  const schedule = React.useCallback((value: number): void => {
+    setError(null);
+    pendingValueRef.current = value;
+    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(commit, TYPOGRAPHY_SAVE_DEBOUNCE_MS);
+  }, [commit, setError]);
+
+  React.useEffect(() => () => {
+    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+    const value = pendingValueRef.current;
+    timerRef.current = undefined;
+    pendingValueRef.current = undefined;
+    if (value !== undefined) void scope.set(field, value).catch(() => {});
+  }, [field, scope]);
+
+  return { schedule, flush: commit, cancel };
+}
+
 function AppearancePage({ scope }: { scope: SettingsScope<Partial<AppearanceSettings>> }): React.ReactElement {
   const snapshot = React.useSyncExternalStore(
     (listener) => scope.subscribe(listener),
@@ -359,13 +421,18 @@ function AppearancePage({ scope }: { scope: SettingsScope<Partial<AppearanceSett
   const settings = normalizeAppearanceSettings(snapshot.value);
   const [fontSize, setFontSize] = React.useState(settings.chatFontSize);
   const [lineHeightRatio, setLineHeightRatio] = React.useState(settings.chatLineHeightRatio);
+  const [processLineHeightRatio, setProcessLineHeightRatio] = React.useState(settings.processLineHeightRatio);
   const [error, setError] = React.useState<string | null>(null);
   const writable = snapshot.status === 'ready' && snapshot.writable;
+  const fontSizeSave = useDebouncedSettingSave(scope, 'chatFontSize', setError);
+  const lineHeightSave = useDebouncedSettingSave(scope, 'chatLineHeightRatio', setError);
+  const processLineHeightSave = useDebouncedSettingSave(scope, 'processLineHeightRatio', setError);
 
   React.useEffect(() => {
     setFontSize(settings.chatFontSize);
     setLineHeightRatio(settings.chatLineHeightRatio);
-  }, [settings.chatFontSize, settings.chatLineHeightRatio]);
+    setProcessLineHeightRatio(settings.processLineHeightRatio);
+  }, [settings.chatFontSize, settings.chatLineHeightRatio, settings.processLineHeightRatio]);
 
   const save = (field: keyof AppearanceSettings, value: boolean | number): void => {
     setError(null);
@@ -415,9 +482,12 @@ function AppearancePage({ scope }: { scope: SettingsScope<Partial<AppearanceSett
                 onChange={(event) => {
                   const value = Number(event.currentTarget.value);
                   setFontSize(value);
-                  applyTypography(value, lineHeightRatio);
-                  save('chatFontSize', value);
+                  applyTypography(value, lineHeightRatio, processLineHeightRatio);
+                  fontSizeSave.schedule(value);
                 }}
+                onPointerUp={fontSizeSave.flush}
+                onKeyUp={fontSizeSave.flush}
+                onBlur={fontSizeSave.flush}
               />
               <output className="dsh-appearance-size-value">{fontSize}px</output>
             </div>
@@ -425,8 +495,8 @@ function AppearancePage({ scope }: { scope: SettingsScope<Partial<AppearanceSett
 
           <div className="dsh-appearance-row">
             <div className="dsh-appearance-copy">
-              <div className="dsh-appearance-title">对话行距</div>
-              <div className="dsh-appearance-description">按字号比例调整正文和过程行的垂直间距。</div>
+              <div className="dsh-appearance-title">回复行距</div>
+              <div className="dsh-appearance-description">按字号比例调整用户消息和助手回复的行距。</div>
             </div>
             <div className="dsh-appearance-size-control">
               <input
@@ -437,15 +507,47 @@ function AppearancePage({ scope }: { scope: SettingsScope<Partial<AppearanceSett
                 step={0.05}
                 value={lineHeightRatio}
                 disabled={!writable}
-                aria-label="对话行距"
+                aria-label="回复行距"
                 onChange={(event) => {
                   const value = Number(event.currentTarget.value);
                   setLineHeightRatio(value);
-                  applyTypography(fontSize, value);
-                  save('chatLineHeightRatio', value);
+                  applyTypography(fontSize, value, processLineHeightRatio);
+                  lineHeightSave.schedule(value);
                 }}
+                onPointerUp={lineHeightSave.flush}
+                onKeyUp={lineHeightSave.flush}
+                onBlur={lineHeightSave.flush}
               />
               <output className="dsh-appearance-size-value">{lineHeightRatio.toFixed(2)}×</output>
+            </div>
+          </div>
+
+          <div className="dsh-appearance-row">
+            <div className="dsh-appearance-copy">
+              <div className="dsh-appearance-title">过程行距</div>
+              <div className="dsh-appearance-description">单独调整上下文、Think、Skill、工具块和折叠按钮的紧凑程度。</div>
+            </div>
+            <div className="dsh-appearance-size-control">
+              <input
+                className="dsh-appearance-range"
+                type="range"
+                min={MIN_PROCESS_LINE_HEIGHT_RATIO}
+                max={MAX_PROCESS_LINE_HEIGHT_RATIO}
+                step={0.05}
+                value={processLineHeightRatio}
+                disabled={!writable}
+                aria-label="过程行距"
+                onChange={(event) => {
+                  const value = Number(event.currentTarget.value);
+                  setProcessLineHeightRatio(value);
+                  applyTypography(fontSize, lineHeightRatio, value);
+                  processLineHeightSave.schedule(value);
+                }}
+                onPointerUp={processLineHeightSave.flush}
+                onKeyUp={processLineHeightSave.flush}
+                onBlur={processLineHeightSave.flush}
+              />
+              <output className="dsh-appearance-size-value">{processLineHeightRatio.toFixed(2)}×</output>
             </div>
           </div>
 
@@ -456,17 +558,28 @@ function AppearancePage({ scope }: { scope: SettingsScope<Partial<AppearanceSett
         </div>
       </section>
 
-      {fontSize === DEFAULT_CHAT_FONT_SIZE && lineHeightRatio === DEFAULT_CHAT_LINE_HEIGHT_RATIO ? null : (
+      {fontSize === DEFAULT_CHAT_FONT_SIZE
+        && lineHeightRatio === DEFAULT_CHAT_LINE_HEIGHT_RATIO
+        && processLineHeightRatio === DEFAULT_PROCESS_LINE_HEIGHT_RATIO ? null : (
         <button
           type="button"
-          className="dsh-appearance-process-toggle"
+          className="dsh-appearance-process-toggle dsh-appearance-reset"
           disabled={!writable}
           onClick={() => {
+            fontSizeSave.cancel();
+            lineHeightSave.cancel();
+            processLineHeightSave.cancel();
             setFontSize(DEFAULT_CHAT_FONT_SIZE);
             setLineHeightRatio(DEFAULT_CHAT_LINE_HEIGHT_RATIO);
-            applyTypography(DEFAULT_CHAT_FONT_SIZE, DEFAULT_CHAT_LINE_HEIGHT_RATIO);
+            setProcessLineHeightRatio(DEFAULT_PROCESS_LINE_HEIGHT_RATIO);
+            applyTypography(
+              DEFAULT_CHAT_FONT_SIZE,
+              DEFAULT_CHAT_LINE_HEIGHT_RATIO,
+              DEFAULT_PROCESS_LINE_HEIGHT_RATIO,
+            );
             save('chatFontSize', DEFAULT_CHAT_FONT_SIZE);
             save('chatLineHeightRatio', DEFAULT_CHAT_LINE_HEIGHT_RATIO);
+            save('processLineHeightRatio', DEFAULT_PROCESS_LINE_HEIGHT_RATIO);
           }}
         >
           恢复默认排版
