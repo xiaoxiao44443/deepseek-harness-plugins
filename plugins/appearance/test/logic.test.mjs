@@ -45,3 +45,15 @@ test('completed turn plan does not hide trailing process or terminal notices wit
   ]);
   assert.deepEqual(plan, []);
 });
+
+test('plugin-rendered artifacts are visible outputs and are never folded as tool process', () => {
+  const plan = planCompletedProcessSegments([
+    { kind: 'context' },
+    { kind: 'tool-call' },
+    { kind: 'tool-call', hasOutput: true },
+    { kind: 'assistant-step', hasOutput: true },
+  ]);
+  assert.deepEqual(plan, [
+    { outputIndex: 2, collapseIndices: [0, 1], toolCount: 1, contextCount: 1 },
+  ]);
+});

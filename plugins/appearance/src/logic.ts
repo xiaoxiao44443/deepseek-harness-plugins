@@ -70,13 +70,13 @@ export interface ProcessSegmentPlan {
   contextCount: number;
 }
 
-/** Group each process run with the next visible Assistant text, preserving every text output. */
+/** Group each process run with the next visible output, preserving text and plugin-rendered artifacts. */
 export function planCompletedProcessSegments(nodes: readonly ProcessFlowNode[]): ProcessSegmentPlan[] {
   const segments: ProcessSegmentPlan[] = [];
   let pending: number[] = [];
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (node?.kind === 'assistant-step' && node.hasOutput === true) {
+    if (node?.hasOutput === true) {
       if (pending.length > 0) {
         segments.push({
           outputIndex: index,
@@ -88,7 +88,7 @@ export function planCompletedProcessSegments(nodes: readonly ProcessFlowNode[]):
       pending = [];
       continue;
     }
-    if (PROCESS_NODE_KINDS.has(node?.kind ?? '') || (node?.kind === 'assistant-step' && node.hasOutput !== true)) {
+    if (PROCESS_NODE_KINDS.has(node?.kind ?? '') || node?.kind === 'assistant-step') {
       pending.push(index);
     }
   }

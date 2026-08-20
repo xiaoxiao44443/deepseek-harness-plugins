@@ -244,11 +244,16 @@ function removeFlowMarkers(rows: readonly HTMLElement[]): void {
   }
 }
 
-function assistantHasOutput(row: HTMLElement): boolean {
-  if (row.dataset.chatFlowKind !== 'assistant-step') return false;
-  const copy = row.cloneNode(true) as HTMLElement;
-  for (const reasoning of copy.querySelectorAll('[data-variant="think"]')) reasoning.remove();
-  return (copy.textContent ?? '').trim().length > 0 || copy.querySelector(MEDIA_CONTENT) !== null;
+function flowNodeHasOutput(row: HTMLElement): boolean {
+  if (row.dataset.chatFlowKind === 'tool-call') {
+    return row.querySelector('[data-dsh-visualization-output]') !== null;
+  }
+  if (row.dataset.chatFlowKind === 'assistant-step') {
+    const copy = row.cloneNode(true) as HTMLElement;
+    for (const reasoning of copy.querySelectorAll('[data-variant="think"]')) reasoning.remove();
+    return (copy.textContent ?? '').trim().length > 0 || copy.querySelector(MEDIA_CONTENT) !== null;
+  }
+  return false;
 }
 
 function segmentSummary(
@@ -344,7 +349,7 @@ function ProcessDisclosure({ matched }: ProcessDisclosureProps): React.ReactElem
     const rows = flowRowsBefore(anchor);
     const nodes = rows.map((row) => ({
       kind: row.dataset.chatFlowKind ?? '',
-      hasOutput: assistantHasOutput(row),
+      hasOutput: flowNodeHasOutput(row),
     }));
     const disposers = planCompletedProcessSegments(nodes).map((segment, segmentId) => {
       const outputRow = rows[segment.outputIndex];

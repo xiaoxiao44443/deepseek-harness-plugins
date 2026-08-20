@@ -1,0 +1,5 @@
+# @dfy-plugins/dsh-visualize bundle patch — session-owned HTML Tool, Skill and sandboxed Client renderer.
+- insert:
+    - id: visualize
+      name: '@dfy-plugins/dsh-visualize'
+
