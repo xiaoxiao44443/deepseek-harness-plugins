@@ -151,6 +151,10 @@ body[${BODY_ATTRIBUTE}] {
   --dsh-appearance-process-font-size: 14px;
   --dsh-appearance-process-line-height: 20px;
 }
+body[${BODY_ATTRIBUTE}] [data-composer-card] [data-input-scroll]
+  :is(textarea, [data-input-backdrop], [data-input-mirror]) {
+  font-size: var(--dsh-appearance-chat-font-size) !important;
+}
 body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='assistant-step'] > div,
 body[${BODY_ATTRIBUTE}] [data-chat-flow-kind='assistant-step'] > div > div > :not([data-variant='think']) {
   font-size: var(--dsh-appearance-chat-font-size) !important;

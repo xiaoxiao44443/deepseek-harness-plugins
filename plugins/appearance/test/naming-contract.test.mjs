@@ -23,6 +23,9 @@ test('appearance registers durable settings, a sidebar page, and completed-turn 
   assert.doesNotMatch(client, /slots\.inject\('conversation\.chat\.turnTail'/);
   assert.match(client, /data-chat-flow-kind/);
   assert.match(client, /data-dsh-appearance-process/);
+  assert.match(client, /\[data-composer-card\] \[data-input-scroll\]/);
+  assert.match(client, /:is\(textarea, \[data-input-backdrop\], \[data-input-mirror\]\)/);
+  assert.match(client, /font-size: var\(--dsh-appearance-chat-font-size\) !important/);
   assert.match(client, /planCompletedProcessSegments/);
   assert.match(client, /processRows\[0\] \?\? outputRow/);
   assert.match(client, /dsh-appearance-process-chevron/);
