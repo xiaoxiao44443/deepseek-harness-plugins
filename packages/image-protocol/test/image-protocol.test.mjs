@@ -21,6 +21,7 @@ const attachment = {
   width: 100,
   height: 80,
   name: '截图.png',
+  originalDimensions: { width: 200, height: 160 },
 };
 
 test('attachment references round-trip strict official metadata', () => {
@@ -28,6 +29,16 @@ test('attachment references round-trip strict official metadata', () => {
   assert.deepEqual(decodeImageAttachmentRef(token), attachment);
   assert.deepEqual(serializeImageAttachmentRef(decodeImageAttachmentRef(token)), attachment);
   assert.throws(() => decodeImageAttachmentRef('not-a-reference'), /reference is invalid/);
+
+  const legacy = { ...attachment };
+  delete legacy.originalDimensions;
+  assert.deepEqual(decodeImageAttachmentRef(encodeImageAttachmentRef(legacy)), legacy);
+
+  const invalidDimensions = Buffer.from(JSON.stringify({
+    ...attachment,
+    originalDimensions: { width: 0, height: 160 },
+  }), 'utf8').toString('base64url');
+  assert.throws(() => decodeImageAttachmentRef(invalidDimensions), /reference is invalid/);
 });
 
 test('image formats are detected from bytes and paths', () => {

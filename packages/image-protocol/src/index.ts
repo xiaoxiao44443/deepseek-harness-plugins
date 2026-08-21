@@ -22,6 +22,7 @@ export interface SerializableImageAttachmentRef {
   width: number;
   height: number;
   name?: string;
+  originalDimensions?: ImageDimensions;
 }
 
 /** Durable metadata for one immutable image owned by a DSH session directory. */
@@ -57,6 +58,14 @@ export interface ImageResultDescriptor {
 
 function positiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function validImageDimensions(value: unknown): value is ImageDimensions {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const dimensions = value as Record<string, unknown>;
+  return positiveInteger(dimensions.width)
+    && positiveInteger(dimensions.height)
+    && Object.keys(dimensions).every((key) => key === 'width' || key === 'height');
 }
 
 function validDisplayName(value: unknown): value is string {
@@ -190,6 +199,9 @@ export function serializeImageAttachmentRef(ref: ImageAttachmentRef | Serializab
     width: ref.width,
     height: ref.height,
     ...(ref.name === undefined ? {} : { name: ref.name }),
+    ...(ref.originalDimensions === undefined
+      ? {}
+      : { originalDimensions: { ...ref.originalDimensions } }),
   };
 }
 
@@ -212,6 +224,7 @@ export function decodeImageAttachmentRef(token: string): ImageAttachmentRef {
     throw new Error('image reference is invalid');
   }
   const record = parsed as Record<string, unknown>;
+  const originalDimensions = record.originalDimensions;
   if (typeof record.attachmentId !== 'string'
     || !ATTACHMENT_ID_PATTERN.test(record.attachmentId)
     || !isImageMediaType(record.mediaType)
@@ -219,7 +232,10 @@ export function decodeImageAttachmentRef(token: string): ImageAttachmentRef {
     || !positiveInteger(record.width)
     || !positiveInteger(record.height)
     || (record.name !== undefined && (typeof record.name !== 'string' || record.name.length > 255))
-    || Object.keys(record).some((key) => !['attachmentId', 'mediaType', 'bytes', 'width', 'height', 'name'].includes(key))) {
+    || (originalDimensions !== undefined && !validImageDimensions(originalDimensions))
+    || Object.keys(record).some((key) => ![
+      'attachmentId', 'mediaType', 'bytes', 'width', 'height', 'name', 'originalDimensions',
+    ].includes(key))) {
     throw new Error('image reference is invalid');
   }
   return {
@@ -229,6 +245,7 @@ export function decodeImageAttachmentRef(token: string): ImageAttachmentRef {
     width: record.width,
     height: record.height,
     ...(typeof record.name === 'string' ? { name: record.name } : {}),
+    ...(validImageDimensions(originalDimensions) ? { originalDimensions } : {}),
   };
 }
 

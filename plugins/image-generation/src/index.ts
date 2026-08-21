@@ -704,7 +704,9 @@ export function apply(ctx: Context, entryConfig: Config): void {
     });
   });
 
-  ctx.on('credentials/updated', () => { void refresh(); });
+  ctx.on('credentials/reference-updated', (ref) => {
+    if (ref === IMAGE_API_KEY_REF) void refresh();
+  });
 
   ctx.inject(['mediaBlocks'], (mediaCtx) => {
     const target: MediaBlocks = mediaCtx.mediaBlocks;

@@ -216,6 +216,9 @@ function encodeImageRef(ref: ImageAttachmentRef): string {
     width: ref.width,
     height: ref.height,
     ...(ref.name === undefined ? {} : { name: ref.name }),
+    ...(ref.originalDimensions === undefined
+      ? {}
+      : { originalDimensions: { ...ref.originalDimensions } }),
   });
   const bytes = new TextEncoder().encode(value);
   let binary = '';
@@ -237,7 +240,16 @@ function decodeImageRefForPreview(token: string): ImageAttachmentRef | undefined
     if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(String(ref.mediaType))) return undefined;
     if (![ref.bytes, ref.width, ref.height].every((item) => typeof item === 'number' && Number.isSafeInteger(item) && item > 0)) return undefined;
     if (ref.name !== undefined && (typeof ref.name !== 'string' || ref.name.length > 255)) return undefined;
-    if (Object.keys(ref).some((key) => !['attachmentId', 'mediaType', 'bytes', 'width', 'height', 'name'].includes(key))) return undefined;
+    if (ref.originalDimensions !== undefined) {
+      if (typeof ref.originalDimensions !== 'object' || ref.originalDimensions === null || Array.isArray(ref.originalDimensions)) return undefined;
+      const dimensions = ref.originalDimensions as Record<string, unknown>;
+      if (![dimensions.width, dimensions.height]
+        .every((item) => typeof item === 'number' && Number.isSafeInteger(item) && item > 0)) return undefined;
+      if (Object.keys(dimensions).some((key) => key !== 'width' && key !== 'height')) return undefined;
+    }
+    if (Object.keys(ref).some((key) => ![
+      'attachmentId', 'mediaType', 'bytes', 'width', 'height', 'name', 'originalDimensions',
+    ].includes(key))) return undefined;
     return ref as unknown as ImageAttachmentRef;
   } catch {
     return undefined;

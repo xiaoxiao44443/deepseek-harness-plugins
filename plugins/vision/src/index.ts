@@ -235,7 +235,7 @@ function sessionDirectoryResolver(
   return (sessionId, signal) => persistedSessionDirectory(ctx, sessionId, rememberedSessionDirs, signal);
 }
 
-async function readReferencedImage(
+export async function readReferencedImage(
   ctx: Context,
   exec: ToolRunContext,
   imageRef: string,
@@ -266,9 +266,16 @@ async function readReferencedImage(
   }
   const ref = decodeImageRef(normalized);
   const stored = await ctx.attachments.readImage(ref, exec.signal);
+  // Re-admit durable references created by older Harness versions so rc.2 can
+  // normalize their pixels before deriving a provider-specific request image.
+  const admitted = await ctx.attachments.saveImage({
+    data: stored.data,
+    mediaType: stored.ref.mediaType,
+    ...(stored.ref.name === undefined ? {} : { name: stored.ref.name }),
+  });
   return {
-    label: stored.ref.name === undefined ? String(stored.ref.attachmentId) : `attachment:${stored.ref.name}`,
-    ref: stored.ref,
+    label: admitted.name === undefined ? String(admitted.attachmentId) : `attachment:${admitted.name}`,
+    ref: admitted,
   };
 }
 

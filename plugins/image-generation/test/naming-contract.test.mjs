@@ -23,6 +23,8 @@ test('image generation keeps package, Cordis, API, settings, Tool and Skill ids 
   assert.doesNotMatch(host, /apiKeyEnv/);
   assert.match(host, /credentialRef\('DFY_IMAGE_GENERATION_API_KEY'\)/);
   assert.match(host, /ctx\.credentials\.set\(IMAGE_API_KEY_REF, apiKey\.trim\(\)\)/);
+  assert.match(host, /ctx\.on\('credentials\/reference-updated', \(ref\) =>/);
+  assert.doesNotMatch(host, /credentials\/updated/);
   assert.match(host, /'\/api\/dsh-image-generation\/status'/);
   assert.match(host, /'\/api\/dsh-image-generation\/resource'/);
   assert.match(host, /'dfy-session-image'/);
