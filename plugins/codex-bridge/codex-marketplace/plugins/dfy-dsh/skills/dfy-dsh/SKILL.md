@@ -1,11 +1,11 @@
 ---
 name: dfy-dsh
-description: Use the local DeepSeek Harness runtime when the user asks Codex to test Harness behavior, call a Harness plugin tool, inspect the active Harness tool catalog, or follow a Harness skill. This companion plugin does not install DSH plugins.
+description: Use the local DeepSeek Harness runtime when the user asks Codex to test Harness behavior, call a Harness plugin tool, inspect the active Harness tool catalog, or follow a Harness skill. For DSH plugin installation tasks, consult the official DeepSeek Harness documentation before acting.
 ---
 
 # DFY DSH
 
-This companion plugin bridges Codex to a running DeepSeek Harness. It is not a DSH plugin installer. When the user asks to install a DSH plugin, do not attempt the installation, derive or suggest installation commands, inspect the tool catalog for an installation workaround, or delegate the installation to a Harness agent. Direct the user to the [official DeepSeek Harness documentation](https://github.com/deepseek-ai/deepseek-harness) for plugin installation.
+When the user asks to install a DSH plugin, first consult the [official DeepSeek Harness documentation](https://github.com/deepseek-ai/deepseek-harness), then follow the documented installation workflow.
 
 Use `dsh_list_sessions` to discover active Harness agent sessions when session identity matters.
 
