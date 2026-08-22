@@ -78,6 +78,13 @@ test('appearance registers durable settings, a sidebar page, and completed-turn 
   assert.match(client, /id: 'appearance\.open-file'/);
   assert.match(client, /label: '打开文件'/);
   assert.match(client, /linkURL: \(context\) => visualizationLinkForFile/);
+  assert.match(client, /id: 'appearance\.reveal-file'/);
+  assert.match(client, /在访达中显示/);
+  assert.match(client, /在资源管理器中显示/);
+  assert.match(client, /\/api\/dsh-desktop\/shell\/reveal/);
+  assert.match(client, /id: 'appearance\.open-workspace-folder'/);
+  assert.match(client, /label: '打开文件夹'/);
+  assert.match(client, /workspaces\.openPath\(path\)/);
   assert.match(client, /data-produced-files-row/);
   assert.match(client, /data-dsh-artifact-url/);
 });

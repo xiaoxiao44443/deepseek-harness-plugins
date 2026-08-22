@@ -1,5 +1,6 @@
 /** @dfy-plugins/dsh-appearance Client half: settings page and completed-turn folding. */
 import React from 'react';
+import { resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client';
 
 import {
   DEFAULT_CHAT_FONT_SIZE,
@@ -46,13 +47,31 @@ interface DesktopContextMenuService {
     id: string;
     label: string;
     linkURL?: (context: DesktopContextMenuContext) => string;
-    icon?: 'external-link';
+    icon?: 'external-link' | 'folder';
     group?: string;
     order?: number;
     when(context: DesktopContextMenuContext): boolean;
     enabled(context: DesktopContextMenuContext): boolean;
-    onSelect(context: DesktopContextMenuContext): void;
+    onSelect(context: DesktopContextMenuContext): void | Promise<void>;
   }): () => void;
+}
+
+interface SessionsService {
+  list: {
+    getSnapshot(): {
+      current: string | undefined;
+      byId: Record<string, { cwd?: string } | undefined>;
+    };
+  };
+}
+
+interface WorkspacesService {
+  list: {
+    getSnapshot(): {
+      items: readonly { title: string; path: string }[];
+    };
+  };
+  openPath(path: string): Promise<void>;
 }
 
 interface ClientCtx {
@@ -80,6 +99,7 @@ const IMAGE_PROCESS_CONTENT = 'img, [data-tool="dfy_vision_analyze"]';
 const ARTIFACT_OUTPUT = '[data-dsh-visualization-output], [data-dsh-image-output]';
 const ARTIFACT_CONTENT = '[data-dsh-artifact-content]';
 const TYPOGRAPHY_SAVE_DEBOUNCE_MS = 250;
+const REVEAL_FILE_PATH = '/api/dsh-desktop/shell/reveal';
 
 function fileLinkButton(target: Element): HTMLButtonElement | null {
   const button = target.closest('button');
@@ -127,11 +147,61 @@ function visualizationLinkForFile(button: HTMLButtonElement | null): string {
   return '';
 }
 
+function filePathForButton(button: HTMLButtonElement | null): string {
+  if (button === null) return '';
+  const title = button.getAttribute('title')?.trim() ?? '';
+  if (title.length > 0) return title;
+  const label = button.getAttribute('aria-label')?.trim() ?? '';
+  const labeledPath = label.replace(/^(?:打开|open)\s+/iu, '').trim();
+  return labeledPath !== label ? labeledPath : button.textContent?.trim() ?? '';
+}
+
+function isAbsoluteHostPath(path: string): boolean {
+  return /^(?:[a-z]:[\\/]|\\\\[^\\]|\/)/iu.test(path);
+}
+
+function resolvedFilePath(ctx: ClientCtx, target: Element): string {
+  const path = filePathForButton(fileLinkButton(target));
+  if (path.length === 0) return '';
+  const sessions = ctx.get?.('sessions') as SessionsService | undefined;
+  const snapshot = sessions?.list.getSnapshot();
+  const cwd = snapshot?.current === undefined ? undefined : snapshot.byId[snapshot.current]?.cwd;
+  const resolved = resolveWorkspacePath(cwd, path);
+  return isAbsoluteHostPath(resolved) ? resolved : '';
+}
+
+function workspacePathForTarget(ctx: ClientCtx, target: Element): string {
+  const row = target.closest<HTMLElement>('[role="treeitem"][aria-expanded]');
+  if (row === null) return '';
+  const label = row.textContent?.trim() ?? '';
+  if (label.length === 0) return '';
+  const workspaces = ctx.get?.('workspaces') as WorkspacesService | undefined;
+  const matches = workspaces?.list.getSnapshot().items.filter((workspace) => workspace.title === label) ?? [];
+  return matches.length === 1 ? matches[0]!.path : '';
+}
+
+function revealFileLabel(): string {
+  if (/mac/iu.test(navigator.platform)) return '在访达中显示';
+  if (/win/iu.test(navigator.platform)) return '在资源管理器中显示';
+  return '在文件管理器中显示';
+}
+
+async function revealFile(path: string): Promise<void> {
+  const response = await fetch(REVEAL_FILE_PATH, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  if (response.ok) return;
+  const payload = await response.json().catch(() => ({})) as { message?: unknown };
+  throw new Error(typeof payload.message === 'string' ? payload.message : `HTTP ${String(response.status)}`);
+}
+
 function installFileLinkContextMenu(ctx: ClientCtx): () => void {
   const service = ctx.desktopContextMenu
     ?? ctx.get?.('desktopContextMenu') as DesktopContextMenuService | undefined;
   if (service === undefined || typeof service.register !== 'function') return () => {};
-  return service.register({
+  const disposers = [service.register({
     id: 'appearance.open-file',
     label: '打开文件',
     linkURL: (context) => visualizationLinkForFile(fileLinkButton(context.target)),
@@ -141,7 +211,32 @@ function installFileLinkContextMenu(ctx: ClientCtx): () => void {
     when: (context) => fileLinkButton(context.target) !== null,
     enabled: (context) => fileLinkButton(context.target)?.disabled !== true,
     onSelect: (context) => { fileLinkButton(context.target)?.click(); },
-  });
+  }), service.register({
+    id: 'appearance.reveal-file',
+    label: revealFileLabel(),
+    icon: 'folder',
+    group: 'appearance-file-links',
+    order: 10,
+    when: (context) => resolvedFilePath(ctx, context.target).length > 0,
+    enabled: (context) => fileLinkButton(context.target)?.disabled !== true,
+    onSelect: async (context) => { await revealFile(resolvedFilePath(ctx, context.target)); },
+  }), service.register({
+    id: 'appearance.open-workspace-folder',
+    label: '打开文件夹',
+    icon: 'folder',
+    group: 'appearance-file-links',
+    order: 20,
+    when: (context) => workspacePathForTarget(ctx, context.target).length > 0,
+    enabled: (context) => workspacePathForTarget(ctx, context.target).length > 0,
+    onSelect: async (context) => {
+      const workspaces = ctx.get?.('workspaces') as WorkspacesService | undefined;
+      const path = workspacePathForTarget(ctx, context.target);
+      if (workspaces !== undefined && path.length > 0) await workspaces.openPath(path);
+    },
+  })];
+  return () => {
+    for (const dispose of disposers.reverse()) dispose();
+  };
 }
 
 const STYLES = `
